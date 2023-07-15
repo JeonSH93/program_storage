@@ -1,0 +1,1618 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <conio.h>
+#include <windows.h>
+#define START_X 2
+#define START_Y 3
+#define FINAL_X 53
+#define FINAL_Y 33
+#define BAR_SIZE 9
+#define BLK_XCNT 6
+#define BLK_YCNT 4
+#define LIFE 3
+#define PLAYER 5
+////////////////////////////// 시작화면필요변수//////////////
+
+char id[5][14] = { "play1","play2","play3","play4","play5" };//5개 id입력배열
+char ch;//키보드입력변수
+int score[5] = { 0 };//id의 점수입력 배열
+int idpic[5] = { 1 };//사용자 캐릭터저장변수
+int picnumb = 0;//캐릭터 변수
+int sign = 5;//시작화면에서 시작할지,나갈지 상태받는변수
+int p;//큰포문 증가변수
+int n;//id입력받을때 증가변수
+int i, j;
+int tballx[8] = { 10,29,49,69,10,73,73,10 };///시작화면 각 공의 좌표,공의 변화량
+int tbally[8] = { 2,2,2,2,13,13,19,19 };
+int tchange_x[8] = { 1,1,1,-1,-1,1,-1,-1 };
+int tchange_y[8] = { 1,1,1,1,-1,1,-1,-1 };
+
+///////////////////////////////마지막화면 필요변수 //////////////////
+int r1, r2;///마지막 화면에서 무한루프 증가변수
+int win[5] = { 0 };///순위별 점수 저장 배열
+
+
+int st;////////////////스테이지 수
+int LIFE_ = LIFE;
+
+// 볼위치S
+int ball_x;
+int ball_y;
+
+// 볼변화량
+int change_x;
+int change_y;
+int blocks_x[BLK_XCNT] = { 2, 11, 20, 29, 38, 47 };
+int blocks_y[BLK_YCNT] = { 4, 6, 8, 10 };
+int blocks_status[BLK_YCNT][BLK_XCNT] =
+{
+   {1, 1, 1, 1, 1, 1},
+   {1, 1, 1, 1, 1, 1},
+   {1, 1, 1, 1, 1, 1},
+   {2, 2, 2, 2, 2, 2}
+};
+
+int bar_x = (FINAL_X - START_X) / 2 + START_X;
+int bar_y = (FINAL_Y - 1);
+
+//공위치 받기위함,잔상위치및 잔상지우기 용도
+int ballx[6] = { 0 };
+int bally[6] = { 0 };
+int balljx[6] = { 47,47,47,47,47,47 };
+int balljy[6] = { 22,22,22,22,22,22 };
+int x;
+
+///////////아이템부분 
+int t; //블록뚫는거 적용 할 때 사용
+int mon_x[3] = { 5,15,10 };  //몬스터생기는임의좌표
+int mon_y[3] = { 15,19,25 };  //몬스터생기는임의좌표
+int change_mon_x[3] = { 1,-2,2 }; //몬스터 움직이는 좌표 변화량
+
+int item_x; //아이템출력좌표
+int item_y; //아이템출력좌표
+char item_st[BLK_YCNT][BLK_XCNT] = {       //아이템상태배열
+	{1,1,1,1,1,1},
+	{1,1,1,1,1,1},
+	{1,1,1,1,1,1},
+	{1,1,1,1,1,1} };
+char it_x[BLK_XCNT] = { 5, 14, 23, 32, 41, 49 };  //각각아이템존재좌표
+char it_y[BLK_YCNT] = { 4, 6, 8, 10 };            //각각아이템존재좌표
+int e;
+int monnumb;
+int barnumb;
+int barplus;
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//색입히기함수
+enum
+{
+	BLACK,/* 0 : 검정 */
+	DARK_BLUE,/* 1 : 어두운 파랑 */
+	DARK_GREEN,/* 2 : 어두운 초록 */
+	DARK_SKY_BLUE, /* 3 : 어두운 하늘 */
+	DARK_RED, /* 4 : 어두운 빨강 */
+	DARK_VIOLET, /* 5 : 어두운 보라 */
+	DARK_YELLOW, /* 6 : 어두운 노랑 */
+	GRAY, /* 7 : 회색 */
+	DARK_GRAY, /* 8 : 어두운 회색 */
+	BLUE, /* 9 : 파랑 */
+	GREEN, /* 10 : 초록 */
+	SKY_BLUE, /* 11 : 하늘 */
+	RED, /* 12 : 빨강 */
+	VIOLET, /* 13 : 보라 */
+	YELLOW, /* 14 : 노랑 */
+	WHITE, /* 15 : 하양 */
+};
+
+
+void Setcolor(int back_color, int fore_color) // 배경색, 글자색넣기
+{
+	int color = (back_color * 16) + fore_color;
+	SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+}
+void textcolor(int color_number)//글자색
+{
+	SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color_number);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 위치이동함수 
+void gotoxy(int x, int y)
+{
+	COORD Pos = { x, y };
+	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), Pos);
+}
+
+
+
+// 배경그리기함수 
+void draw_background()
+{
+	int i;
+	gotoxy(0, 0);
+	printf("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓\n");
+	printf("┃                  Block Breaker 1.0                   ┃                  ┃\n");
+	printf("┣━━━━━━━━━━━━━━━━━━━━━━━━━━━╋━━━━━━━━━┫\n");
+	for (i = 0; i < (FINAL_Y - START_Y + 1); i++)
+	{
+		gotoxy(0, 3 + i);
+		printf("┃");
+		gotoxy(56, 3 + i);
+		printf("┃");
+		gotoxy(76, 3 + i);
+		printf("┃");
+	}
+	gotoxy(0, 34);
+	printf("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━┛\n");
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void setblock()/////////////랜덤 블록 상태 설정
+{
+	int i, j;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+			if (st == 1)
+			{
+				blocks_status[i][j] = 1;
+			}
+			else
+			{
+				blocks_status[i][j] = rand() % 5;
+			}
+			if (blocks_status[i][j] == 0)
+			{
+				blocks_status[i][j] = 1;
+			}
+		}
+	}
+}
+void makeblock()///////////// 블록 생성
+{
+	int i, j;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+			if (blocks_status[i][j] == 1)
+			{
+				textcolor(9);
+				{
+					gotoxy(blocks_x[j], blocks_y[i]);
+					printf("┏━━┓");
+					gotoxy(blocks_x[j], blocks_y[i] + 1);
+					printf("┗━━┛");
+				}
+			}
+			else if (blocks_status[i][j] == 2)
+			{
+				textcolor(15);
+				{
+					gotoxy(blocks_x[j], blocks_y[i]);
+					printf("┏━━┓");
+					gotoxy(blocks_x[j], blocks_y[i] + 1);
+					printf("┗━━┛");
+				}
+			}
+			else if (blocks_status[i][j] == 3)
+			{
+				textcolor(12);
+				{
+					gotoxy(blocks_x[j], blocks_y[i]);
+					printf("┏━━┓");
+					gotoxy(blocks_x[j], blocks_y[i] + 1);
+					printf("┗━━┛");
+				}
+			}
+			else if (blocks_status[i][j] == 4)
+			{
+				textcolor(14);
+				{
+					gotoxy(blocks_x[j], blocks_y[i]);
+					printf("┏━━┓");
+					gotoxy(blocks_x[j], blocks_y[i] + 1);
+					printf("┗━━┛");
+				}
+			}
+		}
+	}
+}
+
+int update_blocks(void)
+{
+	int i, j;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+			if (blocks_status[i][j] == 0)
+			{
+				continue;
+			}
+			if ((ball_x >= blocks_x[j] - 1 && ball_x <= (blocks_x[j] + 8)) &&
+				(ball_y >= blocks_y[i] && ball_y <= (blocks_y[i] + 1)))
+			{
+				if (t != 5)
+				{
+					if (blocks_status[i][j] == 4)
+					{
+						blocks_status[i][j] = 3;
+						gotoxy(blocks_x[j], blocks_y[i]);
+						textcolor(12);
+						{
+							printf("┏━━┓");
+							gotoxy(blocks_x[j], blocks_y[i] + 1);
+							printf("┗━━┛");
+						}
+
+						return 1;
+					}
+
+					if (blocks_status[i][j] == 3)
+					{
+						blocks_status[i][j] = 2;
+						textcolor(9);
+						gotoxy(blocks_x[j], blocks_y[i]);
+						printf("┏━━┓");
+						gotoxy(blocks_x[j], blocks_y[i] + 1);
+						printf("┗━━┛");
+						return 1;
+					}
+					if (blocks_status[i][j] == 2)
+					{
+						blocks_status[i][j] = 1;
+						gotoxy(blocks_x[j], blocks_y[i]);
+						textcolor(15);
+						printf("┏━━┓");
+						gotoxy(blocks_x[j], blocks_y[i] + 1);
+						printf("┗━━┛");
+						return 1;
+					}
+
+					if (blocks_status[i][j] == 1)
+					{
+						blocks_status[i][j] = 0;
+						gotoxy(blocks_x[j], blocks_y[i]);
+						printf("       ");
+						gotoxy(blocks_x[j], blocks_y[i] + 1);
+						printf("       ");
+						return 1;
+					}
+				}
+				if (t == 5)////////////////////////////////////아이템발동시
+				{
+					blocks_status[i][j] = 0;
+					gotoxy(blocks_x[j], blocks_y[i]);
+					printf("       ");
+					gotoxy(blocks_x[j], blocks_y[i] + 1);
+					printf("       ");
+					return 0;
+				}
+			}
+		}
+	}
+	return 0;
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//블록초기화
+void refresh()
+{
+	int i, j;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+			if (i == BLK_YCNT - 1)
+			{
+				blocks_status[i][j] = 2;
+			}
+			else
+			{
+				blocks_status[i][j] = 1;
+			}
+		}
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+int check_gameover(void)
+{
+	int i, j;
+	int is_over = 1;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+			if (blocks_status[i][j] == 1)
+			{
+				is_over = 0;
+			}
+		}
+	}
+	return is_over;
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 바그리기함수
+void draw_bar(int bar_x, int bar_y)
+{
+	gotoxy(bar_x, bar_y);
+	printf("■■■■■");
+}
+void draw_bars(int bar_x, int bar_y)
+{
+	gotoxy(bar_x, bar_y);
+	printf("■■■■");
+}
+void draw_barl(int bar_x, int bar_y)
+{
+	gotoxy(bar_x, bar_y);
+	printf("■■■■■■■■");
+}
+
+/////////////////////////////////////////// 시작화면 필요함수 ////////////////////////
+//첫 배경화면
+void fbackground()
+{
+	int a1;
+	textcolor(2);
+	printf("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n");
+
+	for (a1 = 1; a1 <= 17; a1++)
+	{
+		printf("┃                                                                          ┃\n");
+	}
+	printf("┃                                                                          ┃\n");
+	printf("┃                                                                          ┃\n");
+	printf("┃                                                                          ┃\n");
+	printf("┃                             ┏━━━━━━━┓                           ┃\n");
+	printf("┃                             ┃  Game Start  ┃                           ┃\n");
+	printf("┃                             ┃     Quit     ┃                           ┃\n");
+	printf("┃                             ┗━━━━━━━┛                           ┃\n");
+	printf("┃                                                                          ┃\n");
+	printf("┃                                                                          ┃\n");
+	printf("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n");
+}
+
+//사용자ID입력창
+void playerid(int x, int y)
+{
+	textcolor(14);
+	{
+		gotoxy(x, y);
+		printf("┏━━┳━━━━━━━━━━┓\n");
+		gotoxy(x, y + 1);
+		printf("┃ ID ┃              (영문)┃\n");
+		gotoxy(x, y + 2);
+		printf("┗━━┻━━━━━━━━━━┛\n");
+	}
+
+}
+
+//케릭터선택창
+void playerpic(int x, int y)
+{
+	textcolor(14);
+	{
+		gotoxy(x, y);
+		printf("┏━━━━━━━━━━━━━┓\n");
+		gotoxy(x, y + 1);
+		printf("┃   ◀   캐릭터선택   ▶   ┃\n");
+		gotoxy(x, y + 2);
+		printf("┗━━━━━━━━━━━━━┛\n");
+	}
+
+}
+
+
+
+///////////////////////////////////////////////////////제목
+void title2(int x, int y)
+{
+	textcolor(15);
+	{
+		gotoxy(x, y);
+		printf("○●●●●○● ●○●●●○○○●●●○○○  \n");
+		gotoxy(x, y + 1);
+		printf(" ○●●●○●●○●○●●○●●○●●○●●○\n");
+		gotoxy(x, y + 2);
+		printf(" ○○○○○● ○○○○● ○○○○●●○●●○\n");
+		gotoxy(x, y + 3);
+		printf(" ○●●●○●○●●●○●○●●○●●○●●○\n");
+		gotoxy(x, y + 4);
+		printf("○●●●●○○●●●●○○●●●○● ○○○  \n");
+		gotoxy(x, y + 5);
+		printf("                                             \n");
+		gotoxy(x, y + 6);
+		printf("                                             \n");
+		gotoxy(x, y + 7);
+		printf(" ○○○○● ○●●●●● ○○●●●○●●○  \n");
+		gotoxy(x, y + 8);
+		printf("  ○●●○●○●●●●●○●○●●●○●○   \n");
+		gotoxy(x, y + 9);
+		printf("  ○○○○●○●●●● ○○○○●●●○○    \n");
+		gotoxy(x, y + 10);
+		printf("  ○●●●●○●●●●○●●●○●●●○     \n");
+		gotoxy(x, y + 11);
+		printf(" ○●●●●○○○○●○●●●●○●● ○     \n");
+	}
+}
+
+
+void title1(int x, int y)
+{
+	textcolor(12);
+	{
+		gotoxy(x, y);
+		printf("●○○○○●○ ○●○○○●●●○○○●●●  \n");
+		gotoxy(x, y + 1);
+		printf(" ●○○○●○○●○●○○●○○●○○●○○●\n");
+		gotoxy(x, y + 2);
+		printf(" ●●●●●○ ●●●●○ ●●●●○○●○○●\n");
+		gotoxy(x, y + 3);
+		printf(" ●○○○●○●○○○●○●○○●○○●○○●\n");
+		gotoxy(x, y + 4);
+		printf("●○○○○●●○○○○●●○○○●○ ●●●  \n");
+		gotoxy(x, y + 5);
+		printf("                                             \n");
+		gotoxy(x, y + 6);
+		printf("                                             \n");
+		gotoxy(x, y + 7);
+		printf(" ●●●●○ ●○○○○○ ●●○○○●○○●  \n");
+		gotoxy(x, y + 8);
+		printf("  ●○○●○●○○○○○●○●○○○●○●   \n");
+		gotoxy(x, y + 9);
+		printf("  ●●●●○●○○○○ ●●●●○○○●●    \n");
+		gotoxy(x, y + 10);
+		printf("  ●○○○○●○○○○●○○○●○○○●     \n");
+		gotoxy(x, y + 11);
+		printf(" ●○○○○●●●●○●○○○○●○○ ●     \n");
+	}
+}
+
+////////////////////////////////////////////캐릭터
+void man1(int x, int y)
+{
+	picnumb = 1;//캐릭터숫자
+	textcolor(14);
+	{
+		gotoxy(x, y);
+		printf("┏━━━━━━━━━━━━━━┓\n");
+		gotoxy(x, y + 1);
+		printf("┃......88.........,,88,,,,,,,┃\n");
+		gotoxy(x, y + 2);
+		printf("┃.....8888....,,,.,8888,,,,,,┃\n");
+		gotoxy(x, y + 3);
+		printf("┃.....8888888L0888888888,,,,,┃\n");
+		gotoxy(x, y + 4);
+		printf("┃.,,;888888888888888888888:,,┃\n");
+		gotoxy(x, y + 5);
+		printf("┃,,,88@88888888888888888888,,┃\n");
+		gotoxy(x, y + 6);
+		printf("┃,,@@88888@8@@8@888888888888,┃\n");
+		gotoxy(x, y + 7);
+		printf("┃,@@88@8@@88@888@8@8888@88888┃\n");
+		gotoxy(x, y + 8);
+		printf("┃@@i,,,ii8tiiG@@@@t;,ii8iif88┃\n");
+		gotoxy(x, y + 9);
+		printf("┃@@8;,,ii8tii8@@@8,,,i8iii188┃\n");
+		gotoxy(x, y + 10);
+		printf("┃@@@8iiii1i18@@@@@8ii81i11088┃\n");
+		gotoxy(x, y + 11);
+		printf("┃@@@@@8800GG8@@@@@@@@@@888@@@┃\n");
+		gotoxy(x, y + 12);
+		printf("┃@@@@@@@@@@@811@@@@@@@@@@8@@8┃\n");
+		gotoxy(x, y + 13);
+		printf("┃,@@@@@@@@@@@CC@@@@@@@@@@@8@:┃\n");
+		gotoxy(x, y + 14);
+		printf("┃,,,@@@@@@@t8@@@t@@@@@@@@@@::┃\n");
+		gotoxy(x, y + 15);
+		printf("┃:,::8@@@@@@@@@@@@@@@@@@@@:::┃\n");
+		gotoxy(x, y + 16);
+		printf("┗━━━━━━━━━━━━━━┛\n");
+	}
+}
+
+void man2(int x, int y)
+{
+	picnumb = 2;//캐릭터숫자
+	textcolor(14);
+	{
+		gotoxy(x, y);
+		printf("┏━━━━━━━━━━━━━━┓\n");
+		gotoxy(x, y + 1);
+		printf("┃....1L:iG:.......,iG0LC:....┃\n");
+		gotoxy(x, y + 2);
+		printf("┃...L0.....-------.,,,.,G....┃\n");
+		gotoxy(x, y + 3);
+		printf("┃..C1iii;:..........;iiit0,..┃\n");
+		gotoxy(x, y + 4);
+		printf("┃...0...................,0i,.┃\n");
+		gotoxy(x, y + 5);
+		printf("┃..:G.............,......,0i,┃\n");
+		gotoxy(x, y + 6);
+		printf("┃,0,....................,.,it┃\n");
+		gotoxy(x, y + 7);
+		printf("┃0,....................,.,,,0┃\n");
+		gotoxy(x, y + 8);
+		printf("┃0....,LGGGf,....,f000000,,,G┃\n");
+		gotoxy(x, y + 9);
+		printf("┃0.........,L0Li0;,,,,,,,,,,G┃\n");
+		gotoxy(x, y + 10);
+		printf("┃0,.........,,,,.,,,,,,,,,,,C┃\n");
+		gotoxy(x, y + 11);
+		printf("┃G,,....,,,,t00000,,,,,,,,,,G┃\n");
+		gotoxy(x, y + 12);
+		printf("┃:L,,,,i,,,,,,;i;,,,,,i,,,,f1┃\n");
+		gotoxy(x, y + 13);
+		printf("┃,;0,,,,,i:,,i:,i,,,;i,,,,,G:┃\n");
+		gotoxy(x, y + 14);
+		printf("┃,,,f0;,,,,,,,,,,,,,,,,,,tL,,┃\n");
+		gotoxy(x, y + 15);
+		printf("┃,,,,,,:L0LifG0000000Gt01,,,,┃\n");
+		gotoxy(x, y + 16);
+		printf("┗━━━━━━━━━━━━━━┛\n");
+
+	}
+}
+
+void man3(int x, int y)
+{
+	picnumb = 3;//캐릭터숫자
+	textcolor(14);
+	{
+		gotoxy(x, y);
+		printf("┏━━━━━━━━━━━━━━┓\n");
+		gotoxy(x, y + 1);
+		printf("┃ @@         @@L@@        @@@┃\n");
+		gotoxy(x, y + 2);
+		printf("┃@   @@     @i    @L    @@  @┃\n");
+		gotoxy(x, y + 3);
+		printf("┃@     i@@     ;,    i@0    @┃\n");
+		gotoxy(x, y + 4);
+		printf("┃@          @8    @        @t┃\n");
+		gotoxy(x, y + 5);
+		printf("┃@t         1@@@@@8        @ ┃\n");
+		gotoxy(x, y + 6);
+		printf("┃8f     .@@@@@@@@@@@f      @ ┃\n");
+		gotoxy(x, y + 7);
+		printf("┃t@  @@0              8@f  @ ┃\n");
+		gotoxy(x, y + 8);
+		printf("┃ @@@                    @@t ┃\n");
+		gotoxy(x, y + 9);
+		printf("┃ @@                       @ ┃\n");
+		gotoxy(x, y + 10);
+		printf("┃t@    @@@@@@@@   @@@@@@    @┃\n");
+		gotoxy(x, y + 11);
+		printf("┃@      t@@@t@     @@.@t    @┃\n");
+		gotoxy(x, y + 12);
+		printf("┃@       @@t        @t     t@┃\n");
+		gotoxy(x, y + 13);
+		printf("┃t@            100          @┃\n");
+		gotoxy(x, y + 14);
+		printf("┃ f@        @@:   .@@      @.┃\n");
+		gotoxy(x, y + 15);
+		printf("┃  .@G    @@@@@@@@@@@L   8@  ┃\n");
+		gotoxy(x, y + 16);
+		printf("┗━━━━━━━━━━━━━━┛\n");
+	}
+}
+
+void man4(int x, int y)
+{
+	picnumb = 4;//캐릭터숫자
+	textcolor(14);
+	{
+		gotoxy(x, y);
+		printf("┏━━━━━━━━━━━━━━┓\n");
+		gotoxy(x, y + 1);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 2);
+		printf("┃        @@@@@@@@@@@@@       ┃\n");
+		gotoxy(x, y + 3);
+		printf("┃         @         @        ┃\n");
+		gotoxy(x, y + 4);
+		printf("┃        .@@8@@  @@@.        ┃\n");
+		gotoxy(x, y + 5);
+		printf("┃        ,@@@@@@@@@@         ┃\n");
+		gotoxy(x, y + 6);
+		printf("┃    t@@   @  @  @   8@@     ┃\n");
+		gotoxy(x, y + 7);
+		printf("┃   @@ t@  @@  @@  @t @@ t@  ┃\n");
+		gotoxy(x, y + 8);
+		printf("┃  @  @@@@@@        t@@@@t@@ ┃\n");
+		gotoxy(x, y + 9);
+		printf("┃ @@@@                  t@.@t┃\n");
+		gotoxy(x, y + 10);
+		printf("┃ @  @    @@@      @@@   @ t@┃\n");
+		gotoxy(x, y + 11);
+		printf("┃ @ t@     @        @    @t@t┃\n");
+		gotoxy(x, y + 12);
+		printf("┃  @@t         .         t@@ ┃\n");
+		gotoxy(x, y + 13);
+		printf("┃   @@      .@@G@@.     8@.  ┃\n");
+		gotoxy(x, y + 14);
+		printf("┃    ,@@G             @@L    ┃\n");
+		gotoxy(x, y + 15);
+		printf("┃      ;@@@@@@@@@@@@@;       ┃\n");
+		gotoxy(x, y + 16);
+		printf("┗━━━━━━━━━━━━━━┛\n");
+	}
+}
+
+void man5(int x, int y)
+{
+	picnumb = 5;//캐릭터숫자
+	textcolor(14);
+	{
+		gotoxy(x, y);
+		printf("┏━━━━━━━━━━━━━━┓\n");
+		gotoxy(x, y + 1);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 2);
+		printf("┃　　　 , '´ ￣￣￣ `       ┃\n");
+		gotoxy(x, y + 3);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 4);
+		printf("┃　　　i　r---┬-----i|      ┃\n");
+		gotoxy(x, y + 5);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 6);
+		printf("┃ 　　 | |,,＿ 　 ＿, |      ┃\n");
+		gotoxy(x, y + 7);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 8);
+		printf("┃　　　Ｎ|    　}     l　　　┃\n");
+		gotoxy(x, y + 9);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 10);
+		printf("┃ 　 　 .i     ___　 !       ┃\n");
+		gotoxy(x, y + 11);
+		printf("┃　 　／i/ l＼  ?  ||        ┃\n");
+		gotoxy(x, y + 12);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 13);
+		printf("┃,.?-/ 　|　ｌ　 ￣ / ||`┬  ┃\n");
+		gotoxy(x, y + 14);
+		printf("┃                            ┃\n");
+		gotoxy(x, y + 15);
+		printf("┃/　 ?/ 　 　ト-` ?ノ- |　  l┃\n");
+		gotoxy(x, y + 16);
+		printf("┗━━━━━━━━━━━━━━┛\n");
+	}
+}
+///////////////////////////////////////// 마지막화면 필요 함수 /////////////////////////
+//점수종합화면
+void scorescreen()
+{
+	gotoxy(0, 0);
+	textcolor(2);
+	{
+		printf("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n");
+		printf("┃                                                                          ┃\n");
+		printf("┃                                                                          ┃\n");
+		printf("┃                                                                          ┃\n");
+		printf("┃    ┏━━━━━━━┳━━━━━━┓   ┏━━━━━━━━━━━━━━┓   ┃\n");
+		printf("┃    ┃     I  D     ┃   SCORE    ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┣━━━━━━━╋━━━━━━┫   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃ 1등.         ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃ 2등.         ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃ 3등.         ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃ 4등.         ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃ 5등.         ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┃              ┃            ┃   ┃                            ┃   ┃\n");
+		printf("┃    ┗━━━━━━━┻━━━━━━┛   ┗━━━━━━━━━━━━━━┛   ┃\n");
+		printf("┃                                                                          ┃\n");
+		printf("┃                                                                          ┃\n");
+		printf("┃                                                                          ┃\n");
+		printf("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n");
+	}
+}
+/////////////몬스터
+
+void monster(int x)
+{
+
+	int i;
+	for (i = 0; i < x; i++)
+	{
+		gotoxy(mon_x[i], mon_y[i]);
+		printf("       ");
+		gotoxy(mon_x[i], mon_y[i] + 1);
+		printf("       ");
+
+		if ((ball_x >= mon_x[i]) && (ball_x <= mon_x[i] + 6) && (ball_y == mon_y[i]))change_y *= -1;
+		if ((ball_x >= mon_x[i]) && (ball_x <= mon_x[i] + 6) && (ball_y == mon_y[i] + 1))change_y *= -1;
+		if (mon_x[i] >= FINAL_X - 4)change_mon_x[i] *= -1;
+		if (mon_x[i] <= START_X)change_mon_x[i] *= -1;
+
+		mon_x[i] += change_mon_x[i];
+		textcolor(rand() % 2 + 5);
+		{
+			gotoxy(mon_x[i], mon_y[i]);
+			printf("┏>_<┓");
+			gotoxy(mon_x[i], mon_y[i] + 1);
+			printf("┗<_>┛");
+		}
+	}
+}
+
+////////////////아이템
+void item_choice()
+{
+	int i;
+	int j;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+			item_st[i][j] = rand() % 4;
+		}
+	}
+}
+void item_make()
+{
+	int i;
+	int j;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+
+			item_x = it_x[j];
+			item_y = it_y[i];
+
+			if (blocks_status[i][j] == 0)
+			{
+
+				if (item_st[i][j] == 0)
+				{   //벽돌부수기
+					gotoxy(item_x, item_y);
+					printf("$0");
+					item_st[i][j] = 5;
+					if ((ball_x >= it_x[j] - 1) && (it_x[j] + 2 >= ball_x) && (ball_y == it_y[i]))
+					{
+						t = 5;
+						for (i = 0; i < BLK_YCNT; i++)
+						{
+							for (j = 0; j < BLK_XCNT; j++)
+							{
+								item_st[i][j] = 5;
+							}
+						}
+					}
+				}
+
+				if (ball_y >= (FINAL_Y - 1))
+				{
+					t = 1;
+				}
+				if (item_st[i][j] == 1)
+				{
+					gotoxy(item_x, item_y);
+					printf("$1");
+					if (LIFE_ <= 3)
+						LIFE_ = LIFE_ + 1;
+					item_st[i][j] = 5;
+				}
+				if (item_st[i][j] == 2)
+				{
+					gotoxy(item_x, item_y);
+					printf("$2");
+					barnumb = 2;
+					barplus = -1;
+					item_st[i][j] = 5;
+				}
+				if (item_st[i][j] == 3)
+				{
+					gotoxy(item_x, item_y);
+					printf("$3");
+					barnumb = 3;
+					barplus = 3;
+					item_st[i][j] = 7;
+				}
+			}
+		}
+	}
+}
+
+
+void item_check()
+{
+	int i;
+	int j;
+	for (i = 0; i < BLK_YCNT; i++)
+	{
+		for (j = 0; j < BLK_XCNT; j++)
+		{
+			if ((ball_x >= it_x[j] - 1) && (it_x[j] + 2 >= ball_x) && (ball_y == it_y[i]))
+			{
+				if (item_st[j][i] == 0 || item_st[j][i] == 1 || item_st[j][i] == 2 || item_st[j][i] == 3 ||
+					item_st[j][i] == 4 || item_st[j][i] == 5 || item_st[j][i] == 6 || item_st[j][i] == 7)
+				{
+					gotoxy(it_x[j], it_y[i]);
+					printf("  ");
+				}
+			}
+		}
+	}
+}
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 메인함수=======================================================================================================================================
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+int main(void)
+{
+	int score[5] = { 0,50,20,30,40 };//id의 점수입력 배열
+	int win[5] = { score[0],score[1],score[2],score[3],score[4] };///순위별 점수 저장 배열
+	int score_x = 59;//점수,ID,목숨 출력위치
+	int score_y = 16;
+	int lifex = 59;
+	int lifey = 12;
+	int id_x = 59;
+	int id_y = 4;
+	int st_x = 59, st_y = 8;
+
+
+
+	for (;;)//전체무한반복 for문,계속1~5플래이어 아이디,점수 갱신
+	{
+		for (n = 0; n < 5; n++)//id갯수만큼 반복
+		{
+			/////////////////////////////시작 화면 시작/////////////////////
+			gotoxy(0, 0);
+			fbackground();
+
+			for (i = 0; 1; i++)
+			{
+				title1(18, 5);
+				title2(18, 5);
+				Sleep(10);
+				for (j = 0; j < 8; j++)///////////////////////////////////시작화면/공튀기기 
+				{
+					gotoxy(tballx[j], tbally[j]);
+					printf("  ");
+
+					if (tballx[j] <= START_X && tchange_x[j] < 0) tchange_x[j] *= -1;
+					if (tballx[j] >= FINAL_X + 21 && tchange_x[j] > 0) tchange_x[j] *= -1;
+					if (tbally[j] <= START_Y - 1 && tchange_y[j] < 0) tchange_y[j] *= -1;
+					if (tbally[j] >= FINAL_Y - 8 && tchange_y[j] > 0) tchange_y[j] *= -1;
+					//제목과 옵션에 부딫힐때
+
+
+
+					if (tballx[j] >= 16 && tballx[j] <= 63)
+					{
+						if (tbally[j] >= 4 && tbally[j] < 18 && tchange_y[j]>0)
+						{
+							tchange_y[j] *= -1;
+						}
+					}
+					if (tballx[j] <= 29 && tballx[j] >= 16 && tchange_y[j] < 0)
+					{
+						if (tbally[j] > 4 && tbally[j] <= 18)
+						{
+							tchange_y[j] *= -1;
+						}
+					}
+
+					if (tballx[j] >= 49 && tballx[j] <= 63 && tchange_y[j] < 0)
+					{
+						if (tbally[j] <= 18 && tbally[j] > 4)
+						{
+							tchange_y[j] *= -1;
+						}
+					}
+
+
+					if (tbally[j] <= 18 && tbally[j] > 4)
+					{
+						if (tballx[j] >= 16 && tballx[j] <= 63)
+						{
+							tchange_x[j] *= -1;
+						}
+					}
+
+					if (tbally[j] >= 18 && tbally[j] <= 26)
+					{
+
+						if (tballx[j] <= 49 && tbally[j] >= 29)
+						{
+							tchange_x[j] *= -1;
+						}
+					}
+
+					tballx[j] += tchange_x[j];
+					tbally[j] += tchange_y[j];
+
+					gotoxy(tballx[j], tbally[j]);
+					textcolor(14);
+					{
+						printf("●");
+					}
+
+				}///////////////////////////////////////////////공튀기기
+				if (_kbhit())
+				{
+					char ch = _getch();
+					int kx = 33, ky = 23;
+					if (ch == 72)//위방향키입력
+					{
+						sign = 1;
+						gotoxy(kx, ky);
+						Setcolor(0, 15);
+						{
+							printf("     Quit     ");
+						}
+
+						gotoxy(kx, ky - 1);
+						Setcolor(4, 15);
+						{
+							printf("  Game Start  ");
+						}
+
+					}
+					if (ch == 80)//아래방향키입력
+					{
+						sign = 0;
+						gotoxy(kx, ky - 1);
+						Setcolor(0, 15);
+						{
+							printf("  Game Start  ");
+						}
+						gotoxy(kx, ky);
+						Setcolor(4, 15);
+						{
+							printf("     Quit     ");
+						}
+					}
+					if (ch == 13)//엔터입력시
+					{
+						if (sign == 0)
+						{
+							goto QUIT;
+						}
+						else if (sign == 1)
+						{
+
+							playerid(25, 18);
+							goto firstout;//for문탈출
+						}
+					}
+				}//키입력if문
+			}
+		firstout://포문탈출후 이동
+			gotoxy(33, 19);
+			gets(id[n]);//문자열입력받기
+			playerpic(25, 18);//캐릭터선택안내창
+			man1(24, 1);//첫화면
+			for (;;)//캐릭터선택을위한 for문
+			{
+				if (_kbhit()) //키입력받아서 오른쪽,왼쪽입력시 캐릭터번호 더해지고뺴짐
+				{
+					ch = _getch();
+					//우방향키
+					if (ch == 0x4D)
+					{
+						picnumb += 1;
+						if (picnumb > 5)
+						{
+							picnumb = 0;
+						}
+					}
+					// 좌방향키처리
+					else if (ch == 0x4B)
+					{
+						picnumb -= 1;
+						if (picnumb < 1)
+						{
+							picnumb = 5;
+						}
+					}
+					if (ch == 13)//엔터입력시
+					{
+						idpic[i] = picnumb;//사용자캐릭터변수에 캐릭터번호입력
+						playerid(25, 18);
+						goto secondout;//for문탈출
+					}
+				}
+				if (picnumb == 1)//캐릭터번호에따른 캐릭터 출력
+				{
+					man1(24, 1);
+				}
+				else if (picnumb == 2)
+				{
+					man2(24, 1);
+				}
+				else if (picnumb == 3)
+				{
+					man3(24, 1);
+				}
+				else if (picnumb == 4)
+				{
+					man4(24, 1);
+				}
+				else if (picnumb == 5)
+				{
+					man5(24, 1);
+				}
+			}
+		secondout://시작화면에서; 두번째포문 나가기
+			system("cls");
+			/////////////////////////////////       게임 화면      ////////////////////////////////////////////////////////
+			for (st = 1; 1; st++)//////////////스테이지 반복 상승.
+			{
+				LIFE_ = 3;
+			START:
+				refresh();
+
+				int i;
+				int speed = 16;//속도조절기능
+
+				char ch = NULL;
+				ball_x = bar_x + 4;
+				ball_y = bar_y - 1;
+				change_x = 0;
+				change_y = 0;
+				//////////////////아이템부분
+				item_choice();
+				item_st[1][4] = 5;
+				item_st[2][4] = 5;
+				item_st[2][5] = 5;
+				item_st[3][4] = 5;
+				int a = 0;
+				int b = 0;
+				int k;
+				barnumb = 1;
+				barplus = 0;
+				// 배경화면만들기
+				gotoxy(0, 0);
+				textcolor(10);
+				draw_background();
+				Sleep(500);
+				//////////벽돌 그리기
+				setblock();///////////////벽돌 랜덤 상태결정
+				makeblock();
+
+				///////////////////스테이지 입력
+				gotoxy(st_x, st_y);
+				textcolor(6);
+				{
+					printf("STAGE\n");
+				}
+				gotoxy(st_x, st_y + 2);
+				textcolor(4);
+				{
+					printf("%d\n", st);
+				}
+				////사용자 점수 입력
+				gotoxy(score_x, score_y);
+				textcolor(6);
+				{
+					printf("SCORE");
+				}
+				gotoxy(score_x, score_y + 2);
+				textcolor(4);
+				{
+					printf("%d", score[n]);
+				}
+				//////사용자 ID입력
+				gotoxy(id_x, id_y);
+				textcolor(6);
+				{
+					printf("ID\n");
+				}
+				gotoxy(id_x, id_y + 2);
+				textcolor(4);
+				{
+					printf("%s\n", id[n]);
+				}
+				////////사용자 목숨입력	
+				gotoxy(lifex, lifey);
+				textcolor(6);
+				{
+					printf("LIFE\n");
+				}
+				gotoxy(lifex, lifey + 2);
+				textcolor(4);
+				{
+					printf("%d\n", LIFE_);
+				}
+				////////////이전 잔상 지우기
+				for (j = 0; j < 6; j++)
+				{
+					for (i = 0; i < 6; i++)
+					{
+						gotoxy(ballx[j], bally[i]);
+						printf("  ");
+						gotoxy(balljx[j], balljy[i]);
+						printf("  ");
+
+
+					}
+				}
+
+
+
+				// 바그리기
+
+				if (barnumb == 3)
+				{
+					gotoxy(bar_x, bar_y);
+					printf("                 ");
+					textcolor(4);
+					draw_barl(bar_x, bar_y);
+				}
+				if (barnumb == 2)
+				{
+					gotoxy(bar_x, bar_y);
+					printf("                       ");
+					textcolor(4);
+					draw_bars(bar_x, bar_y);
+				}
+				if (barnumb == 1)
+				{
+					gotoxy(bar_x, bar_y);
+					printf("                     ");
+					textcolor(4);
+					draw_bar(bar_x, bar_y);
+				}
+
+				change_x = 0;
+				change_y = 0;
+				gotoxy(bar_x + 4, bar_y - 1);
+				printf("o");
+
+				for (i = 100; 1; i++)
+				{
+					//공이 안움직일때 공과 바의움직임
+					if (change_x == 0 && change_y == 0)
+					{
+						if (_kbhit())
+						{
+							ch = _getch();
+							// 게임종료
+							if (ch == 'q' || ch == 'Q')
+							{
+								goto QUIT;
+							}
+							// 위방향키
+							else if (ch == 72 && bar_y > 14)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("               ");
+								gotoxy(bar_x + 4, bar_y - 1);
+								printf(" ");
+								bar_y -= 1;
+							}
+							//아래방향키
+							else if (ch == 80 && bar_y < (FINAL_Y - 1))
+							{
+								gotoxy(bar_x, bar_y);
+								printf("               ");
+								gotoxy(bar_x + 4, bar_y - 1);
+								printf(" ");
+								bar_y += 1;
+							}
+							//우방향   키
+							else if (ch == 0x4D)
+							{
+								if ((bar_x + BAR_SIZE + barplus) < FINAL_X - 1)
+								{
+									gotoxy(bar_x + 4, bar_y - 1);
+									printf("               ");
+									bar_x += 1;
+								}
+							}
+							// 좌방향키처리
+							else if (ch == 0x4B)
+							{
+								if (bar_x > START_X)
+								{
+									gotoxy(bar_x + 4, bar_y - 1);
+									printf("              ");
+									bar_x -= 1;
+								}
+							}
+							else
+							{
+								if (ch == 0x20)//spacebar시 튀어나감
+								{
+									gotoxy(bar_x + 4, bar_y - 1);
+									change_y = -1;
+									ball_x = bar_x + 4;
+									ball_y = bar_y - 1;
+								}
+							}
+
+							textcolor(4);  //빨간색
+							if (barnumb == 3)////////////바 조건에맞게 수정해서 그리기
+							{
+								gotoxy(bar_x, bar_y);
+								printf("             ");
+								textcolor(4);
+								draw_barl(bar_x, bar_y);
+							}
+							if (barnumb == 2)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("             ");
+								textcolor(4);
+								draw_bars(bar_x, bar_y);
+							}
+							if (barnumb == 1)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("             ");
+								textcolor(4);
+								draw_bar(bar_x, bar_y);
+							}
+							gotoxy(bar_x + 4, bar_y - 1);
+							printf("o");
+						}
+					}
+					Sleep(1);
+					//공이움직일때 키보드입력받는거부터시작
+					if ((change_x != 0) || (change_y != 0))
+					{
+						if (_kbhit())
+						{
+							ch = _getch();
+							if (ch == 'q' || ch == 'Q') //나가기
+							{
+								break;
+							}
+							else if (ch == 43) //속도증가
+							{
+								if (speed > 2)
+								{
+									speed -= 7;
+								}
+							}
+							else if (ch == 45)//속도감소
+							{
+								speed += 7;
+							}
+							// 위방   향키
+							else if ((ch == 72) && (bar_y > 14))
+							{
+								gotoxy(bar_x, bar_y);
+								printf("               ");
+								bar_y -= 1;
+							}
+							//아래방향   키
+							else if (ch == 80 && bar_y < (FINAL_Y - 1))
+							{
+								gotoxy(bar_x, bar_y);
+								printf("               ");
+								bar_y += 1;
+							}
+							//우방향   키
+							else if (ch == 0x4D)
+							{
+
+								if ((bar_x + BAR_SIZE + barplus) < FINAL_X - 1)
+								{
+									bar_x += 1;
+								}
+							}
+							// 좌방향키   처리
+							else if (ch == 0x4B)
+							{
+								if (bar_x > START_X)
+								{
+									bar_x -= 1;
+								}
+							}
+							//   바그리기		
+							if (barnumb == 3)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("             ");
+								textcolor(4);
+								draw_barl(bar_x, bar_y);
+							}
+							if (barnumb == 2)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("                ");
+								textcolor(4);
+								draw_bars(bar_x, bar_y);
+							}
+							if (barnumb == 1)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("             ");
+								textcolor(4);
+								draw_bar(bar_x, bar_y);
+							}
+
+						}
+						// 볼위치갱신해서그리기 
+						if (i % speed == 0)
+						{
+							textcolor(10);
+							{
+								draw_background();
+							}
+
+							x = (x++) % 7;
+							Sleep(30);
+							gotoxy(ball_x, ball_y);
+							printf("  ");
+							item_make();
+
+							if ((balljx[x] > 2) || (balljy[x] > 3))//
+							{
+								gotoxy(balljx[x], balljy[x]);
+								printf("  ");
+							}
+							if (x > 2)
+							{
+								balljx[x - 3] = ball_x;
+								balljy[x - 3] = ball_y;
+							}
+							ballx[x] = ball_x;//볼의 위치를 저장,나중에 잔상출력
+							bally[x] = ball_y;
+							if (ball_x <= START_X && change_x < 0) change_x *= -1;
+							if (ball_x >= FINAL_X + 1 && change_x > 0) change_x *= -1;
+							if (ball_y <= START_Y && change_y < 0) change_y *= -1;
+							if (ball_x >= bar_x && ball_x <= (bar_x + BAR_SIZE + barplus))
+							{
+								if (ball_y == bar_y || ball_y == bar_y - 1)
+								{
+									change_y = -1;
+									if (ball_x < bar_x + (BAR_SIZE + barplus) / 2 - 1)
+									{
+										if (change_x == 0)
+										{
+											change_x = -1;
+										}
+
+									}
+									else if (ball_x > bar_x + (BAR_SIZE + barplus) / 2 + 1)
+									{
+										if (change_x == 0)
+										{
+											change_x = 1;
+										}
+									}
+									else
+									{
+										change_x = 0;
+									}
+								}
+								else if (ball_y >= (FINAL_Y - 1))
+								{
+									change_x = 0;
+									change_y = 0;
+									printf("  ");
+									gotoxy(bar_x + 4, bar_y - 1);
+								}///공이 바 밑으로갔을때 안사라질때 씀
+							}
+							else if (ball_y >= (FINAL_Y - 1))
+							{
+								gotoxy(bar_x + 4, bar_y - 1);
+								change_x = 0;
+								change_y = 0;
+								printf(" ");
+
+
+								if (LIFE_ >= 2)
+								{
+									LIFE_ -= 1;
+									gotoxy(ball_x, ball_y);//공이 창밖을 빠져나가서 무한으로가는거방지. 각if마다하나씩
+									printf("  ");
+									ball_x = bar_x + 4;
+									ball_y = bar_y - 1;
+									gotoxy(ball_x, ball_y);
+									gotoxy(0, 0);
+									goto START;
+									barnumb = 1;
+								}
+								if (LIFE_ == 1)
+								{
+									LIFE_ = 0;
+									gotoxy(ball_x, ball_y);//공이 창밖을 빠져나가서 무한으로가는거방지. 각if마다하나씩
+									printf("   ");
+									ball_x = bar_x + 4;
+									ball_y = bar_y - 1;
+									change_x = 0;
+									change_y = 0;
+									gotoxy(21, 14);
+									printf("GAME OVER ");
+									gotoxy(7, 16);
+									barnumb = 1;
+									goto LAST;
+								}
+
+							}
+
+							ball_x += change_x;
+							ball_y += change_y;
+							if (x == 6)
+							{
+								balljx[5] = ball_x;
+								balljy[5] = ball_y;
+							}
+							if (update_blocks() == 1)
+							{
+								change_y *= -1;
+								score[n] = score[n] + 100;
+								gotoxy(score_x, score_y + 2);
+								textcolor(4);
+								printf("%d", score[n]);
+							}
+
+							gotoxy(ball_x, ball_y);
+							textcolor(x + 1);   //노란색
+							printf("●");
+							item_check();
+							gotoxy(ballx[x], bally[x]);//아까저장한 볼의 위치에 잔상출력
+							printf("˚");
+							if (x > 3)
+							{
+								gotoxy(ballx[x - 4], bally[x - 4]);//첫번째 잔상을 지운다
+								printf("  ");
+
+							}
+
+							makeblock();
+
+							if (barnumb == 3)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("             ");
+								textcolor(4);
+								draw_barl(bar_x, bar_y);
+							}
+							if (barnumb == 2)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("                 ");
+								textcolor(4);
+								draw_bars(bar_x, bar_y);
+							}
+							if (barnumb == 1)
+							{
+								gotoxy(bar_x, bar_y);
+								printf("             ");
+								textcolor(4);
+								draw_bar(bar_x, bar_y);
+							}
+							monster(3);
+							gotoxy(lifex, lifey);
+							textcolor(6);
+							{
+								printf("LIFE\n");
+							}
+							gotoxy(lifex, lifey + 2);
+							textcolor(4);
+							{
+								printf("%d\n", LIFE_);
+							}
+						}
+						// 게임종료확인   
+						if (check_gameover() == 1)
+						{
+							gotoxy(21, 14);
+							printf("STAGE CLEAR ");
+							Sleep(200);
+							gotoxy(21, 14);
+							printf("              ");
+							break;////다 깻을시 다음화면으로 넘어감
+						}
+					}
+				}
+			}//////////////////스테이지 반복 for문
+///////	////////////////////////////////////////////마지막 화면///////////////////////
+		LAST:
+			system("cls");
+			int same0, same1, same2, same3, same4;
+			same0 = score[0];
+			same1 = score[1];
+			same2 = score[2];
+			same3 = score[3];
+			same4 = score[4];
+			win[0] = same0;
+			win[1] = same1;
+			win[2] = same2;
+			win[3] = same3;
+			win[4] = same4;
+			scorescreen();/////기본 배경 불러오기
+			int temp;///랭킹산출시 필요한 변수
+			for (r2 = 0; r2 < PLAYER - 1; r2++)//////랭킹산출 비교횟수는 데이터갯수-1, 자기 자신과는 비교 하지 않음
+			{
+				for (r1 = 0; r1 < PLAYER - 1; r1++)
+				{
+					if (win[r1] < win[r1 + 1])
+					{
+						temp = win[r1];//뒷자리의 수가 더 크면 교체
+						win[r1] = win[r1 + 1];
+						win[r1 + 1] = temp;
+					}
+				}
+			}
+			for (;;)
+			{
+				for (r2 = 0; r2 < 5; r2++)//랭킹에맞게 각 위치에 점수,이름 출력
+				{
+					for (r1 = 0; r1 < 5; r1++)
+					{
+						if (win[r2] == score[r1])
+						{
+							textcolor(12);
+							gotoxy(13, 9 + (r2) * 2);
+							printf("%s\n", id[r1]);
+							gotoxy(27, 9 + (r2) * 2);
+							printf("%d\n", score[r1]);
+						}
+					}
+				}
+				for (r1 = 0; r1 < 5; r1++)////////1등사진출력
+				{
+					if (win[0] == score[r1])
+					{
+
+						picnumb = (r1)+1;
+						if (picnumb == 1)//캐릭터번호에따른 캐릭터 출력
+						{
+							man1(42, 4);
+						}
+						else if (picnumb == 2)
+						{
+							man2(42, 4);
+						}
+						else if (picnumb == 3)
+						{
+							man3(42, 4);
+						}
+						else if (picnumb == 4)
+						{
+							man4(42, 4);
+						}
+
+						else if (picnumb == 5)
+						{
+							man5(42, 4);
+						}
+					}
+				}////////1등사진출력
+				if (_kbhit())
+				{
+					char ch = _getch();
+					int kx = 33, ky = 23;
+					if (ch == 13)//엔터입력시
+					{
+						system("cls");
+						break;//for문탈출
+					}
+				}//키입력if문
+			}///////마지막화면 무한루프 for문
+		}//id갯수만큼 반복for문
+	}//전체무한반복 for문,계속1~5플래이어 아이디,점수 갱신
+
+QUIT://첫시작화면에서 QUIT선택시 종료되는위치로이동
+	gotoxy(25, 18);//"입력하십시오...."이거 출력위치 
+	return 0;
+}
