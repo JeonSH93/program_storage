@@ -1,0 +1,396 @@
+// Do not remove the include below
+#include "S_Line.h"
+
+int S_DIN = 42, S_SCLK = 43, S_SYNCN = 44;
+int IN_SEN_EN = 26;
+int SensorA[8] = {A0,A1,A2,A3,A4,A5,A6,A7};//위에서본 왼->오
+int SensorD[8] = {30,31,32,33,34,35,36,37};
+int m_SensorD[8] = {0};
+int Motor[6] = {22,23,24,25,4,5};
+int direction_data1=0;
+unsigned int Buff_A[8] = {0,0,0,0,0,0,0,0};
+unsigned int ADC_MAX[8] = {0,0,0,0,0,0,0,0};
+unsigned int ADC_MIN[8] = {1023,1023,1023,1023,1023,1023,1023,1023};
+unsigned int ADC_MEAN[8] = {0,0,0,0,0,0,0,0};
+unsigned char Sensor_data = 0;
+
+//S자
+bool move=0;//s자 코스 동작, 0 중심맞추기, 1 이동
+bool side=0;//이전 회전한 방향 0 왼, 1 오른쪽 회전
+int speed = 0;//동작모드 설정
+int invade=0;//선인식 갯수 확인
+//
+
+void setup()
+{
+	int z;
+	pinMode(IN_SEN_EN,OUTPUT);
+	pinMode(S_DIN,OUTPUT);
+	pinMode(S_SCLK,OUTPUT);
+	pinMode(S_SYNCN,OUTPUT);
+	digitalWrite(S_SCLK,LOW);
+	digitalWrite(S_SYNCN,HIGH);
+	digitalWrite(IN_SEN_EN,HIGH);
+	for(z=0;z<6;z++)
+	{
+		pinMode(Motor[z],OUTPUT);
+		digitalWrite(Motor[z],LOW);
+	}
+	for(z=0;z<8;z++)
+	{
+		pinMode(SensorD[z],INPUT);
+	}
+	Serial.begin(115200);
+	DAC_setting(0x9000);
+	for(z=0;z<8;z++)
+	{
+		DAC_CH_Write(z,255);
+	}
+	infrared_init();
+}
+
+void loop()
+{
+	Sensor_data = SensorD_read();//각 센서의 디지털 측정값을 8비트 변수로 저장
+	speed = 0;
+
+	//동작
+	if(move==0)//처음 중심잡기
+	{
+		move=1;
+	}
+	//*****************************************************************************************
+
+	else//중심잡은후 동작
+	{
+		invade=0;
+		for(int f=0;f<8;f++)//선 인식
+		{
+			if(!m_SensorD[f]) invade +=1;//선 인식한 센서 갯수 카운팅
+		}
+//-----------동작----------
+		if(invade)//선인식O->좌우회전
+		{
+			Move_Select();// 선 인식에 따른 동작 선택
+		}
+		else////선인식X->직진
+		{
+			Motor_Control('A',255);
+			Motor_mode(FORWARD);
+		}
+	}
+	delay(5);
+	//
+}
+
+void ADC_Compare(void)//각 센서별로 아날로그 측정값의 최대, 최소값을 측정한다.
+{
+	int z;
+	for(z=0;z<8;z++)
+	{
+		if(ADC_MAX[z] < Buff_A[z])	ADC_MAX[z] = Buff_A[z];
+		if(ADC_MIN[z] > Buff_A[z])	ADC_MIN[z] = Buff_A[z];
+	}
+}
+
+unsigned char SensorD_read(void)//각 센서의 디지털 측정값을 8비트변수에 저장, 각 센서의 측정값을 배열에 저장
+{
+	unsigned char data=0,z;
+	for(z=0;z<8;z++)
+	{
+		data >>= 1;
+		if(digitalRead(SensorD[z]))	data |= 0x80;
+
+		m_SensorD[z]=digitalRead(SensorD[z]);
+	}
+	return data;
+}
+
+void SensorA_read(void)//아날로그값을 입력받아 배열에 저장.
+{
+	int z;
+	for(z=0;z<8;z++)
+		Buff_A[z] = analogRead(SensorA[z]);
+}
+
+void DAC_CH_Write(unsigned int ch, unsigned int da)//시리얼DAC에 채널과 데이터를 입력하는 함수
+{
+	unsigned int data = ((ch<<12)&0x7000) | ((da<<4) & 0x0FF0);
+	DAC_setting(data);
+}
+
+void DAC_setting(unsigned int data)//시리얼DAC에 데이터 입력 함수
+{
+	int z;
+
+	digitalWrite(S_SCLK,HIGH);
+	delayMicroseconds(1);
+	digitalWrite(S_SCLK,LOW);
+	delayMicroseconds(1);
+	digitalWrite(S_SYNCN,LOW);
+	delayMicroseconds(1);
+	for(z=16;z>0;z--)
+	{
+		digitalWrite(S_DIN,(data>>(z-1))&0x1);
+		digitalWrite(S_SCLK,HIGH);
+		delayMicroseconds(1);
+		digitalWrite(S_SCLK,LOW);
+		delayMicroseconds(1);
+	}
+	digitalWrite(S_SYNCN,HIGH);
+}
+
+void infrared_init()//적외선 디지털값으로 변환하기위한 중간값 구함
+{
+	int z,error = 0;
+	//Serial.println(" infrared init Start");
+	Motor_Control('A',250);
+	while(1)
+	{
+		//int brk=0;
+		Motor_mode(0x05);//LEFT_U
+		for(z=0;z<50;z++)
+		{
+			SensorA_read();
+			ADC_Compare();
+			//Serial.print(" Infrared Read : ");
+			//Serial.println(z);
+			/*//
+			for(z=0;z<8;z++)
+			{
+				if((ADC_MAX[z]-ADC_MIN[z])<200)
+					error++;
+			}
+			if(error == 0)
+			{
+				//Serial.println("\n\r infrared init END");
+				brk=1;
+				break;
+			}
+			else
+			{
+				error = 0;
+				//Serial.println("\n\r infrared init Restart");
+				for(z=0;z<8;z++)
+				{
+					ADC_MAX[z] = 0;
+					ADC_MIN[z] = 1023;
+				}
+			}
+
+			//*/
+			delay(8);
+		}
+		//if(brk) return;
+
+		Motor_mode(0x05);//RIGHT_U
+		for(z=0;z<100;z++)
+		{
+			SensorA_read();
+			ADC_Compare();
+			//Serial.print(" Infrared Read : ");
+			//Serial.println(z);
+			//
+			/*for(z=0;z<8;z++)
+					{
+						if((ADC_MAX[z]-ADC_MIN[z])<200)
+							error++;
+					}
+					if(error == 0)
+					{
+						//Serial.println("\n\r infrared init END");
+						brk=1;
+						break;
+					}
+					else
+					{
+						error = 0;
+						//Serial.println("\n\r infrared init Restart");
+						for(z=0;z<8;z++)
+						{
+							ADC_MAX[z] = 0;
+							ADC_MIN[z] = 1023;
+						}
+					}
+			//if(brk) break;*/
+			//
+			delay(8);
+		}
+		//if(brk) break;
+
+		//Motor_mode(0x05);//LEFT_U
+		delay(400);
+		Motor_mode(STOP);
+
+		//Serial.println("\n\r ADC MAX");
+		/*for(z=0;z<8;z++)
+		{
+			Serial.print(" ");
+			Serial.print(ADC_MAX[z]);
+		}
+		//Serial.println("\n\r ADC MIN");
+		for(z=0;z<8;z++)
+		{
+			Serial.print(" ");
+			Serial.print(ADC_MIN[z]);
+		}*/
+		delay(100);//1000
+		for(z=0;z<8;z++)
+		{
+			if((ADC_MAX[z]-ADC_MIN[z])<200)
+				error++;
+		}
+		if(error == 0)
+		{
+			//Serial.println("\n\r infrared init END");
+			break;
+		}
+		else
+		{
+			error = 0;
+			//Serial.println("\n\r infrared init Restart");
+			for(z=0;z<8;z++)
+			{
+				ADC_MAX[z] = 0;
+				ADC_MIN[z] = 1023;
+			}
+		}
+	}
+	//Serial.println("DAC Setting Start");
+	for(z=0;z<8;z++)
+	{
+		ADC_MEAN[z] = (ADC_MAX[z]+ADC_MIN[z])/2;
+		DAC_CH_Write(z,ADC_MEAN[z]/4);
+	}
+	/*Serial.println("DAC_Setting");
+	for(z=0;z<8;z++)
+	{
+		Serial.print(" ");
+		Serial.print(ADC_MEAN[z]);
+	}
+	Serial.println("\n\r DAC Setting End");*/
+}
+
+void Motor_mode(int da)//좌우모터 이동방향 설정
+{
+	int z;
+	for(z=0;z<4;z++)
+		digitalWrite(Motor[z],(da>>z) & 0x01);
+}
+
+void Motor_Control(char da, unsigned int OC_value)//좌우 모터 속도설정
+{
+	switch(da)
+	{
+		case 'L':
+			analogWrite(Motor[4],OC_value);
+			break;
+		case 'R':
+			analogWrite(Motor[5],OC_value);
+			break;
+		case 'A':
+			analogWrite(Motor[4],OC_value);
+			analogWrite(Motor[5],OC_value);
+			break;
+	}
+}
+
+void Motor_Move(unsigned int l_value, unsigned int r_value)//모터 좌우 속도 동시 조절
+{
+	analogWrite(Motor[4],l_value);//좌
+	analogWrite(Motor[5],r_value);//우
+}
+
+void Move_Select()//라인인식에 따른 모터 동작 설정
+{
+	if(!m_SensorD[4]&&!m_SensorD[3])//중앙 두영역(+좌우한개씩)걸친경우
+	{
+		int m_side;
+
+		switch(invade)
+		{
+		case 2:
+		case 3:
+		case 4:
+			if(!side) m_side = LEFT_U;//이전에 왼쪽으로 회전햇으면 지금 왼쪽 회전
+			else m_side = RIGHT_U;
+
+			Motor_mode(m_side);
+			Motor_Move(180,180);
+			delay(8);
+			break;
+
+		case 5:
+		case 6:
+		case 7:
+		case 8:
+			if(!side) m_side = LEFT_U;//이전에 오른쪽으로 회전햇으면 지금 오른쪽 회전
+			else m_side = RIGHT_U;
+
+			Motor_mode(m_side);
+			Motor_Move(255,255);
+			delay(8);
+			break;
+		}
+	}
+	else//중앙에 두영역 걸친부분이 없을 경우
+	{
+		if(!m_SensorD[7]||!m_SensorD[6]||!m_SensorD[5]||!m_SensorD[4])//오른쪽 선3개 인식 !(Sensor_data&&0xF0)
+		{
+			//제일 l쪽 값을 찾기
+			for(int i=1;i<4;i++)
+			{
+				if(!m_SensorD[i+4])//중앙제일 왼쪽부터 오른쪽으로 가며 선이 있으면 탐색종료
+				{
+					speed=i+4;
+					side=0;//좌회전함 기록
+					break;
+				}
+			}
+		}
+		if(!m_SensorD[3]||!m_SensorD[2]||!m_SensorD[1]||!m_SensorD[0])//왼쪽 선3개 인식   Sensor_data&&0x0F
+		{
+			//제일 r쪽 값을 찾기
+			for(int i=1;i<4;i++)
+			{
+				if(!m_SensorD[3-i])//중앙제일 오른쪽부터 왼쪽으로 가며 선이 있으면 탐색종료
+				{
+					speed=3-i;
+					side=1;//우회전함 기록
+					break;
+				}
+			}
+		}
+
+		//
+		Motor_mode(FORWARD);//전진방향
+		switch(speed)
+		{
+			case  7://조금우회전
+				Motor_Move(0,150);
+				break;
+			case  6://중간우회전
+				Motor_Move(0,175);
+				break;
+			case  5://빠른우회전
+				Motor_Move(0,200);
+				break;
+			case  4://엄청빠른우회전
+				Motor_Move(0,255);
+				break;
+
+			case  3://엄청빠른좌회전
+				Motor_Move(255,0);
+				break;
+			case  2://조금좌회전
+				Motor_Move(200,0);
+				break;
+			case  1://중간좌회전
+				Motor_Move(175,0);
+				break;
+			case  0://빠른좌회전
+				Motor_Move(150,0);
+				break;
+		}//
+	}
+}
