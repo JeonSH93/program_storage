@@ -1,0 +1,151 @@
+
+#include "third.h"
+char RX_buf[17];
+unsigned char TX_buf1[5]= {0x76,0x00,0xF0,0x00,0xF0};
+unsigned char TX_buf2[5]= {0x76,0x00,0x0F,0x00,0x0F};
+int BUZZER = 45;
+int Motor[6]={22,23,24,25,4,5};
+int PWM_Value= 255;
+
+//상황에_따른변수
+int episode[10] = {0};
+///////////////////////////
+
+//차량멈추면0_움직이면1
+int move=0;
+
+//센서값_튀는거_방지하기_위한카운트변수
+int count=0;
+
+//평행주차시앞뒤거리계산위해
+int FrontBackDistance = 0;
+
+int count_t=0;
+
+void setup(){
+	pinMode(BUZZER,OUTPUT);
+		digitalWrite(BUZZER,LOW);
+	Serial1.begin(115200);
+	int z;
+	Serial.begin(115200);
+	for(z=0;z<6;z++){
+		pinMode(Motor[z],OUTPUT);
+		digitalWrite(Motor[z],LOW);
+	}
+	Motor_Mode(STOP);
+	Motor_Control('A',PWM_Value,PWM_Value);
+}
+
+void loop(){
+}
+
+void Motor_Mode(int da){
+	int z;
+	for(z=0;z<4;z++) digitalWrite(Motor[z],(da>>z)&0x01);
+}
+
+void Motor_Control(char da, unsigned int OC_Value_L, unsigned int OC_Value_R){
+	switch(da){
+		case'L':
+			analogWrite(Motor[4],OC_Value_L);
+		break;
+
+		case'R':
+			analogWrite(Motor[5],OC_Value_R);
+		break;
+
+		case'A':
+			analogWrite(Motor[4],OC_Value_L);
+			analogWrite(Motor[5],OC_Value_R);
+		break;
+	}
+}
+
+void serialEvent1(){
+	unsigned char z,tmp=0;
+	Serial1.readBytes(RX_buf,17);
+	if((RX_buf[0]==0x76)&&(RX_buf[1]==0)){
+		for(z=2;z<16;z++) tmp +=(unsigned char)RX_buf[z];
+		tmp = tmp & 0xFF;
+	}
+		if(move==1){
+			delay(1250);
+			Motor_Mode(STOP);
+			Motor_Mode(RIGHT_U);
+			delay(350);
+			Motor_Mode(STOP);
+			Motor_Mode(BACKWARD);
+			int k=1;
+			for(int i=0;i<14;i++){
+				digitalWrite(BUZZER,k);
+				delay(48);
+				if(k==0) k=1;
+				else k=0;
+			}
+
+			Motor_Mode(STOP);
+			Motor_Mode(LEFT_U);
+			for(int i=0;i<7;i++){
+				digitalWrite(BUZZER,k);
+				delay(50);
+				if(k==0) k=1;
+				else k=0;
+			}
+			Motor_Mode(STOP);
+			delay(500);
+			digitalWrite(BUZZER,LOW);
+			Motor_Mode(BACKWARD);
+			delay(200);
+			Motor_Mode(STOP);
+			Motor_Mode(RIGHT_U);
+			delay(350);
+			Motor_Mode(STOP);
+			Motor_Mode(FORWARD);
+			delay(620);
+			Motor_Mode(STOP);
+			Motor_Mode(LEFT_U);
+			delay(365);
+			Motor_Mode(STOP);
+			Motor_Mode(FORWARD);
+			delay(1500);
+			Motor_Mode(STOP);
+			Motor_Mode(LEFT_U);
+			Motor_Control('A', 5, 250);
+			delay(1250);
+			Motor_Mode(STOP);
+			Motor_Mode(FORWARD);
+			Motor_Control('A', 255, 255);
+			delay(150);
+			Motor_Mode(LEFT_U);
+			Motor_Control('A', 255, 37);
+			delay(1250);
+			Motor_Mode(STOP);
+			Motor_Mode(FORWARD);
+			Motor_Control('A', 255, 255);
+			delay(2700);
+			Motor_Mode(STOP);
+			move=0;
+
+
+		}
+	}
+
+
+void serialEvent(){
+	unsigned char da = Serial.read();
+	if(da=='t'){
+		Motor_Control('A',255,255);
+		Motor_Mode(FORWARD);
+		move =1;
+		Serial1.write(TX_buf1,5);
+	}
+	else if(da=='s'){
+		move =0;
+		count = 0;
+		count_t = 0;
+		for(int k=0;k<9;k++){
+			episode[k] = 0;
+		}
+		Motor_Mode(STOP);
+	}
+}
