@@ -1,0 +1,48 @@
+// Only modify this file to include
+// - function definitions (prototypes)
+// - include files
+// - extern variable definitions
+// In the appropriate section
+
+#ifndef S_Line_H_
+#define S_Line_H_
+#include "Arduino.h"
+//add your includes for the project S_Line here
+
+
+//end of add your includes here
+#ifdef __cplusplus
+extern "C" {
+#endif
+void loop();
+void setup();
+#ifdef __cplusplus
+} // extern "C"
+#endif
+
+//add your function definitions for the project S_Line here
+//--상수정의
+#define FORWARD 0x09
+#define RIGHT 0x01
+#define LEFT 0x08
+#define RIGHT_U 0x05
+#define LEFT_U 0x0A
+#define STOP 0x00
+//--
+
+//--함수
+void Motor_Control(char da, unsigned int OC_value);
+void Motor_mode(int da);
+void infrared_init();
+void DAC_setting(unsigned int data);
+void DAC_CH_Write(unsigned int ch, unsigned int da);
+void SensorA_read(void);
+unsigned char SensorD_read(void);
+void ADC_Compare(void);
+//
+
+void Motor_Move(unsigned int l_value, unsigned int r_value);
+void Move_Select();
+
+//Do not add code below this line
+#endif /* S_Line_H_ */
