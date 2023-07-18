@@ -1,0 +1,25 @@
+
+#ifndef third_H_
+#define third_H_
+#include "Arduino.h"
+
+
+#define FORWARD 0x09//1001왼앞오앞
+#define BACKWARD 0x06//0110왼뒤오뒤
+#define LEFT_U 0x05//0101->1010 왼전오후
+#define RIGHT_U 0x0A//1010->0101 왼후오전
+#define LEFT 0x08
+#define RIGHT 0x01
+#define STOP 0x00
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+void loop();
+void setup();
+#ifdef __cplusplus
+}
+#endif
+void Motor_Mode(int da);
+void Motor_Control(char da, unsigned int OC_Value_L, unsigned int OC_Value_R);
+#endif /* exercise_H_ */
