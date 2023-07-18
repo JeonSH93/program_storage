@@ -1,0 +1,1120 @@
+
+// MultiObjectBatch2010Dlg.cpp : implementation file
+//
+
+/* 
+
+본 객체추적 프로그램은 경일대학교전자공학과 김진호교수 연구실에서 캡스톤 디자인 교과목의 
+교육용/실습용 목적으로 배포한 것입니다. 
+2배포한 목적 이외에 프로그램의 소스 사용을 금합니다.
+
+2016.04.25(월) 
+
+
+-------------------
+[메뉴 설명]
+-------------------
+Capture On/Off  -- 웹카메라로 입력되는 영상을 \Output\capture 폴더에 연속 파일로 저장한다.
+Camera On/Off   -- 카메라를 동작시키거나 끙때 사용한다.
+
+Load Image List -- 이미지 파일 목록을 불러온다.
+Batch(On/Off)   -- 이미지 파일 목록의 이미지를 불러와서 "객체추적 시작/종료"를 선택한다.
+Close -- 종료버턴이다.
+
+-------------------
+[라디오버턴]
+-------------------
+0. Original Image -- Camera 또는 Image File의 원본 영상을 보여준다.
+1. Backrground Image -- 객체추적을 위한 배경 영상을 생성한다.
+2. Detection -- 객체를 검출한다.
+
+-------------------
+[동작모드]
+-------------------
+이미지 파일 목록을 불러왔을 때는 라디오버턴 1 및 2 --->> 이미지 목록을 대상으로 객체를 추적한다.
+이미지 파일 목록을 불러오지 않았을 때는 라디오버턴 1 및 2 --->> 카메라 영상을 대상으로 객체를 추적한다.
+
+-------------------
+[참고사항]
+-------------------
+객체 추적을 하는 효과적인 방법은 먼저 라디오 버턴 [Backrground Image] 모드를 선택해서
+안정된 배경을 생성(TRACKING COUNT = 0 or 1 )한 다음에
+라디오 버턴 [Detection] 모드를 선택하면 안정된 객체 추적을 할 수 있다.
+
+ 
+*/
+
+
+
+#include "stdafx.h"
+#include "MultiObjectBatch2010.h"
+#include "MultiObjectBatch2010Dlg.h"
+#include "afxdialogex.h"
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+
+//*************************************************************************
+// (DLL 로딩 및 호출 관련)
+//*************************************************************************
+HMODULE m_hDLL;
+
+//*************************************************************************
+// (스레드로 동작시킬 함수 정의)
+//*************************************************************************
+UINT BatchRecognitionByThreadMode(LPVOID lParam);
+
+//*************************************************************************
+// (배치모드 영상처리 인덱스)
+//*************************************************************************
+static int nCntBatch=0;
+
+CMultiObjectBatch2010Dlg::CMultiObjectBatch2010Dlg(CWnd* pParent /*=NULL*/)
+	: CDialogEx(CMultiObjectBatch2010Dlg::IDD, pParent)
+	, m_total(0)
+	, m_number(0)
+	, m_message(_T(""))
+	, m_proc_select(0)
+{
+	m_pDib = NULL;
+	m_bCapture = false;
+	m_bGoTHread = false;
+
+	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+}
+
+void CMultiObjectBatch2010Dlg::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+	DDX_Text(pDX, IDC_STATIC_TOTAL, m_total);
+	DDX_Text(pDX, IDC_STATIC_NUMBER, m_number);
+	DDX_Text(pDX, IDC_STATIC_MESSAGE, m_message);
+	DDX_Control(pDX, IDC_PIC_MAIN, m_pic_main);
+	DDX_Control(pDX, IDC_LIST_IMAGE, m_list_image);
+	DDX_Radio(pDX, IDC_RADIO_SELECT, m_proc_select);
+}
+
+BEGIN_MESSAGE_MAP(CMultiObjectBatch2010Dlg, CDialogEx)
+	ON_WM_PAINT()
+	ON_WM_QUERYDRAGICON()
+	ON_BN_CLICKED(IDC_BUTTON_CLOSE, &CMultiObjectBatch2010Dlg::OnBnClickedButtonClose)
+	ON_BN_CLICKED(IDC_BUTTON_CAM_ONOFF, &CMultiObjectBatch2010Dlg::OnBnClickedButtonCamOnoff)
+	ON_BN_CLICKED(IDC_BUTTON_VIDEO_CAPTURE, &CMultiObjectBatch2010Dlg::OnBnClickedButtonVideoCapture)
+	ON_BN_CLICKED(IDC_BUTTON_LOAD_IMAGE_LIST, &CMultiObjectBatch2010Dlg::OnBnClickedButtonLoadImageList)
+	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_IMAGE, &CMultiObjectBatch2010Dlg::OnLvnItemchangedListImage)
+	ON_WM_WINDOWPOSCHANGING()
+	ON_BN_CLICKED(IDC_BUTTON_BATCH_PROCESSING, &CMultiObjectBatch2010Dlg::OnBnClickedButtonBatchProcessing)
+END_MESSAGE_MAP()
+
+
+// CMultiObjectBatch2010Dlg message handlers
+
+BOOL CMultiObjectBatch2010Dlg::OnInitDialog()
+{
+	CDialogEx::OnInitDialog();
+
+	// Set the icon for this dialog.  The framework does this automatically
+	//  when the application's main window is not a dialog
+	SetIcon(m_hIcon, TRUE);			// Set big icon
+	SetIcon(m_hIcon, FALSE);		// Set small icon
+
+	// TODO: Add extra initialization here
+	// ----------------------------------------------------------
+	// (0-1) 객체추적 라이브러리(VisionEngine.dll)를 로드한다. DLL만 사용(explicit)
+	// ----------------------------------------------------------
+	m_hDLL = NULL;
+	m_hDLL = LoadLibrary( _T("VisionEngine.dll") );
+	if( m_hDLL == NULL){
+		AfxMessageBox(_T(" Error ! Loading Dll file !! "));
+		return FALSE;
+	}
+
+	// ----------------------------------------------------------
+	// (0-2) 라이브러리의 인식엔진을 초기화한다. DLL만 사용(explicit)
+	// ----------------------------------------------------------
+	wchar_t *szTemp = new wchar_t [ m_strHome.GetLength()+1 ];
+	wsprintfA( (LPSTR)szTemp, "%ls", m_strHome );
+
+	typedef bool (DLLLoad)( char * );
+	DLLLoad *DllEngineLoading = (DLLLoad*)GetProcAddress(m_hDLL, (LPCSTR)("EngineLoad"));
+	bool IsItOk = (*DllEngineLoading)( (char *)szTemp );
+	if( IsItOk == false ){
+		AfxMessageBox(_T(" Error ! Initialize engine !! "));
+		return FALSE;
+	}
+
+	//*******************************************************************
+	// (1) 다이알로그 뷰포트의 실제 크기를 구한다.
+	//*******************************************************************
+	CRect rtPic;
+	m_pic_main.GetClientRect(&rtPic);
+
+	VIEW_X = rtPic.right-rtPic.left+1; // 다이얼로그 뷰화면의 가로 크기 
+	VIEW_Y = rtPic.bottom-rtPic.top+1; // 다이얼로그 뷰화면의 세로 크기
+
+	m_fX = (float)VIEW_X/CAM_X;	// 뷰화면 가로 크기/영상의 가로 크기 
+	m_fY = (float)VIEW_Y/CAM_Y; // 뷰화면 세로 크기/영상의 세로 크기
+
+	//*******************************************************************
+	// (2) 오른쪽에 객체 추적결과를 출력할 팝업 다이얼로그를 생성한다.
+	//*******************************************************************
+	m_pDlg = new CPopupDialog;
+	m_pDlg->Create(IDD_POPUPDIALOG);
+
+	//*******************************************************************
+	// (3) exe 파일이 저장된 폴더의 경로를 구한다   
+	//*******************************************************************
+	m_strHome = GetHomeDirectory();
+	m_strHome = AddFinalBackslash(m_strHome);
+	m_strOutPath = m_strHome  + _T("..\\OutPut\\");
+
+	//***********************************************************************
+	// (4-1)  "camera_config.txt" 파일을 읽어서 USB 카메라 포맷을 설정한다.
+	//***********************************************************************
+	CString strPath = m_strHome + _T("..\\Exe\\camera_config.txt");
+	wchar_t* filePath = T2W(strPath.GetBuffer(0));
+
+	FILE *fp;
+	if((fp=_wfopen( filePath, L"rt+,ccs=UNICODE")) == NULL)
+					AfxMessageBox(_T(" Can't read initialize file !"));
+
+	wchar_t buff_in[1024];
+
+	fwscanf(fp, L"%s", buff_in);  
+	     if(wcscmp(buff_in, L"CAMERA=") !=0 ) AfxMessageBox(_T("CAMERA= format error!"));
+	fwscanf(fp, L"%s", buff_in);  // read camera format
+	     if(wcscmp(buff_in, L"FORMAT_RGB024") ==0 ) m_CameraFormat = FORMAT_RGB024;
+	else if(wcscmp(buff_in, L"FORMAT_YUV422") ==0 ) m_CameraFormat = FORMAT_YUV422;
+	else if(wcscmp(buff_in, L"FORMAT_YUV420") ==0 ) m_CameraFormat = FORMAT_YUV420;
+	fclose(fp);
+
+	//***********************************************************************
+	// (4-2) USB 카메라를 초기화한다(VFW 사용)
+	//***********************************************************************
+	m_VideoTool.SetVideoOwner(this);
+	if (!m_VideoTool._CreateCaptureView(this->m_hWnd))
+	{
+		AfxMessageBox(_T(" Can't start USB camera !"));
+		m_bCamera=false;
+	}
+	else
+		m_bCamera=true ;
+
+	if(!m_VideoTool._CheckVideoSize(CAM_X, CAM_Y)){ 
+		AfxMessageBox(_T("Check camera resolution 640 x 480 !"));
+		m_VideoTool._ShowDlgVideoFormat();
+	}
+
+	
+	//*******************************************************************
+	// (5) 영상파일 목록 - List Control 초기화  
+	//*******************************************************************
+	LV_COLUMN lvColumn;
+	wchar_t* list[3] = {_T("No"), _T("File name"), _T("Solution") };
+	int nWidth[3] = { 50, 100, 90 };
+	
+	for(int i=0; i<3; i++)
+	{
+		lvColumn.mask = LVCF_FMT | LVCF_SUBITEM | LVCF_TEXT | LVCF_WIDTH;
+		lvColumn.fmt  = LVCFMT_LEFT; // CENTER;
+		lvColumn.pszText = list[i];
+		lvColumn.iSubItem = i;
+		lvColumn.cx = nWidth[i];
+		m_list_image.InsertColumn(i, &lvColumn);
+	}
+
+	m_list_image.SetExtendedStyle( m_list_image.GetExtendedStyle() | 
+		LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES );	
+
+	// ----------------------------------------------------------
+	// (6) Initialize Tracking Parameters
+	// ----------------------------------------------------------
+	bStartTracking = false;
+	m_tracking = new struct TARGET_TRACKING [MAX_TARGET];
+
+
+
+	return TRUE;  // return TRUE  unless you set the focus to a control
+}
+
+// If you add a minimize button to your dialog, you will need the code below
+//  to draw the icon.  For MFC applications using the document/view model,
+//  this is automatically done for you by the framework.
+
+void CMultiObjectBatch2010Dlg::OnPaint()
+{
+	if (IsIconic())
+	{
+		CPaintDC dc(this); // device context for painting
+
+		SendMessage(WM_ICONERASEBKGND, reinterpret_cast<WPARAM>(dc.GetSafeHdc()), 0);
+
+		// Center icon in client rectangle
+		int cxIcon = GetSystemMetrics(SM_CXICON);
+		int cyIcon = GetSystemMetrics(SM_CYICON);
+		CRect rect;
+		GetClientRect(&rect);
+		int x = (rect.Width() - cxIcon + 1) / 2;
+		int y = (rect.Height() - cyIcon + 1) / 2;
+
+		// Draw the icon
+		dc.DrawIcon(x, y, m_hIcon);
+	}
+	else
+	{
+		CDialogEx::OnPaint();
+	}
+}
+
+// The system calls this function to obtain the cursor to display while the user drags
+//  the minimized window.
+HCURSOR CMultiObjectBatch2010Dlg::OnQueryDragIcon()
+{
+	return static_cast<HCURSOR>(m_hIcon);
+}
+
+// ****************************************************************************
+// (팝업 다이얼로그의 위치를 메인 다이얼로그 우측상단에 위치시킨다)
+// ****************************************************************************
+void CMultiObjectBatch2010Dlg::ShowPOPUPDialogUpDatePosition()
+{
+	CRect wc, rt;
+	GetWindowRect(&wc); // 메인 다이얼로그 스크린 좌표를 구한다 
+
+	m_pDlg->GetWindowRect(&rt); // 팝업 다이얼로그 크기 좌표를 구한다 
+	m_pDlg->MoveWindow( wc.right+5, wc.top+5, rt.Width(), rt.Height());
+	m_pDlg->ShowWindow(SW_SHOW);
+}
+
+
+void CMultiObjectBatch2010Dlg::OnWindowPosChanging(WINDOWPOS* lpwndpos)
+{
+	__super::OnWindowPosChanging(lpwndpos);
+
+	// TODO: Add your message handler code here
+	ShowPOPUPDialogUpDatePosition();
+}
+
+
+
+// ***************************************************************************
+// (콜백함수) 카메라에서 영상이 입력될 때 마다 자동으로 호출되는 함수 
+// ***************************************************************************
+LRESULT CMultiObjectBatch2010Dlg::OnFrameCallbackProc(HWND hWnd, LPVIDEOHDR lpVHdr)
+{
+	if( m_bCamera == false ) return 01;
+
+	BITMAPINFOHEADER *pBi = (BITMAPINFOHEADER *) m_VideoTool.GetBitmapInfo();
+	if(m_pDib) delete m_pDib;
+	
+	switch (m_CameraFormat)
+	{
+		case FORMAT_RGB024: m_pDib = new CDib(pBi->biWidth, pBi->biHeight, pBi->biBitCount, NULL, lpVHdr->lpData);	break;
+		case FORMAT_YUV422: m_pDib = new CDib(pBi->biWidth, pBi->biHeight, 24, lpVHdr->lpData, FORMAT_YUV422);		break;
+		case FORMAT_YUV420: m_pDib = new CDib(pBi->biWidth, pBi->biHeight, 24, lpVHdr->lpData, FORMAT_YUV420);		break;
+		default: AfxMessageBox(_T(" Unknow camera format !"));
+	}
+
+	((CDibApp *)m_pDib)->DrawDibOnPictureControl(&m_pic_main, true); // 화면에 영상을 출력한다.
+
+	// ******************************************** 
+	// 캡쳐버턴이 눌러졌을 때 입력영상을 저장하는 루틴 
+	// ******************************************** 
+	if( m_bCapture == true ) 
+	{
+		CString strFilePath = m_strOutPath + _T("\\capture\\"); // 이미지 파일 저장 경로 
+		CString strFileName;
+		strFileName.Format(_T("%04d.jpg"), m_nCaptureCounter);  // 이미지 파일 이름 설정(숫자 카운트)
+		m_nCaptureCounter++; // 숫자로 지정된 이미지 파일 이름 증가
+		if(m_nCaptureCounter == 2000 ) m_bCapture = false; // 최대 2000장까지만 저잔한다 
+
+		m_pDib->SaveImage(strFilePath + strFileName); // 이미지 파일 저장 
+		m_message = strFileName; // 파일 이름 출력 
+		UpdateData( false ); // 데이터를 다이얼로그 화면에 출력한다 
+	}
+
+	UpdateData(true); // 다이알로그 내용 가져오기...
+
+	// ******************************************** 
+	// 카메라로 입력되는 영상의 객체추적 -- 이미지파일이 로드되지 않았을 경우(m_total==0) 카메라 영상을 추적한다.
+	// ******************************************** 
+	if( m_total == 0 ) 
+	{		
+		int select =  m_proc_select;   // 동작모드(라디오버턴) -- 1. Background 2. Detection
+		if( select == PROC_SRC_IMAGE){ // 0. Original Image 일 경우 객체추적을 하지 않는다. 
+			return 01;
+		}
+
+		if( nCntBatch == 0 ) InitDetectionProcess(); // 객체추적 라이브러리를 초기화한다. 
+
+		int w = m_pDib->Width() ; // 영상의 가로 픽셀 개수 
+		int h = m_pDib->Height(); // 영상의 세로 픽셀 개수 
+		unsigned char *src = m_pDib->GetCDibPixels(); // 순수 영상 데이터(raw data)를 추출한다.
+		int bitperpxl = m_pDib->BitCount(); // 픽셀의 길이 
+
+		OBJECTTRACKING( nCntBatch, src, w, h, bitperpxl, select ); // 객체추적 함수 호출
+		nCntBatch++;
+		if( 65000 < nCntBatch ) nCntBatch = 1; // 프레임 카운트를 증가시킨다.
+		delete src;
+
+		CString strCnt;
+		strCnt.Format(_T(" (frame cnt= %d)"), nCntBatch); // 현재 추적 프레임 정보를 화면에 출력한다.
+		m_message += strCnt;
+		UpdateData( false ); 
+	}
+
+	return 0l;
+}
+
+// ***************************************************************************
+// (프로그램 종료)
+// ***************************************************************************
+void CMultiObjectBatch2010Dlg::OnBnClickedButtonClose()
+{
+	typedef unsigned char * (DLLFunc)();
+	DLLFunc *DllEngineRelease = (DLLFunc*)GetProcAddress(m_hDLL, "EngineRelease");
+	(*DllEngineRelease)();
+
+	if(m_hDLL) FreeLibrary(m_hDLL);
+	if(m_pDib) delete m_pDib; // 프로그램 종료시 이미지 객체 해제싵킨다. 
+
+	//	if(m_bCamera == true )
+	//		m_VideoTool._DestroyCaptureView();
+
+	delete [] m_tracking;
+
+	// Exit
+	CDialog::OnOK();
+}
+
+
+// ***************************************************************************
+// (카메라 켜기/ 끄기)
+// ***************************************************************************
+void CMultiObjectBatch2010Dlg::OnBnClickedButtonCamOnoff()
+{
+	m_bCamera = !m_bCamera; // 카메라를 On/Off 시키는 플래그 설정  
+	m_VideoTool._ToggleContinuousGrab(); // 토글 방식으로 카메라를 On/Off 시킨다.
+	nCntBatch = 0;
+}
+
+// ***************************************************************************
+// (웹 카메라 입력 영상을 연속적으로 저장 시작/ 멈춤)
+// ***************************************************************************
+void CMultiObjectBatch2010Dlg::OnBnClickedButtonVideoCapture()
+{
+	if(m_bCapture == false){ // 이미지 캡쳐 시작 
+		m_nCaptureCounter = 1;
+		m_bCapture = true;
+	}
+	else{ // 이미지 캡쳐 종료 
+		
+		m_bCapture = false;
+	}
+}
+
+// ***************************************************************************
+// (영상 목록 파일을 리스트 컨트롤로 읽어들인다)
+// ***************************************************************************
+void CMultiObjectBatch2010Dlg::OnBnClickedButtonLoadImageList()
+{
+	int nFileCnt=0 ;
+
+	//***********************************************************************
+	// Open multiple files 
+	//***********************************************************************
+	CFileDialog dlg(TRUE,_T( "jpg(*.jpg)"), _T("*.jpg"), 
+				OFN_HIDEREADONLY|OFN_OVERWRITEPROMPT|OFN_EXPLORER|OFN_ALLOWMULTISELECT,
+				_T("Image Files (*.jpg)|*.jpg|Image Files (*.jpeg)|*.jpeg|Image Files (*.bmp)|*.bmp|(*.raw)|*.raw|") );
+
+	wchar_t *pszFile=new wchar_t[65535*4];
+	ZeroMemory(pszFile,65535*4);  
+	dlg.m_ofn.lpstrFile	  = pszFile;
+	dlg.m_ofn.nMaxFile    = 65535*4;
+	dlg.m_ofn.nFileOffset = 0;
+
+	CString FileTitle, FileName;
+
+	CString strCnt;
+	LV_ITEM lvItem;
+
+	//***********************************************************************
+	// Open dialog for multiple file selection 
+	//***********************************************************************
+
+	if(dlg.DoModal()==IDOK) 
+	{
+		POSITION pos=dlg.GetStartPosition();
+		m_list_image.DeleteAllItems();
+
+		while(pos!=NULL) 
+		{
+		//***************************************************************
+		// Read current file information 
+		//***************************************************************
+		CString strFileName=dlg.GetNextPathName(pos);
+		FileName  = strFileName.Mid(strFileName.ReverseFind('\\')+1);
+		AfxExtractSubString( FileTitle, FileName, 0, '.');
+
+		m_Gallery[nFileCnt].m_FileName = FileTitle  ;	// 읽은 파일이름의 이름부분만 가져온다.
+		m_Gallery[nFileCnt].m_FilePath = strFileName;	// 읽은 파일이름의 "전체경로 + 이름 + 확장자" full name 을 가져온다.  
+
+		strCnt.Format(_T("%04d"), nFileCnt+1);
+		lvItem.mask = LVIF_TEXT;
+		lvItem.iItem = nFileCnt;
+		lvItem.iSubItem = 0;
+
+		int length = 1024;
+		LPWSTR pwsz = strCnt.GetBuffer( length );
+		lvItem.pszText =  pwsz;
+
+		m_list_image.InsertItem(&lvItem);
+		m_list_image.SetItemText( nFileCnt, 1, m_Gallery[nFileCnt].m_FileName);
+
+		nFileCnt++;	
+		}
+
+		//***************************************************************
+		// (추가) 여기서 이미지를 생성해서 등록 함수를 호출한다. 
+		//***************************************************************
+		if(m_pDib != NULL) delete m_pDib;
+		m_pDib = new CDib( m_Gallery[0].m_FilePath );
+		
+		((CDibApp *)m_pDib)->DrawDibOnPictureControl(&m_pic_main, true);
+
+		//*************************************************************************
+		// (객체 검출엔진 초기화) -- 영상 목록 파일 추적을 위한 라이브러리 엔진 초기화 
+		//*************************************************************************
+		InitDetectionProcess();
+		nCntBatch=0; 
+
+		//*************************************************************************
+		//
+		//*************************************************************************		
+		m_total = nFileCnt;
+		m_number = 1;
+		UpdateData(false);	 
+	}
+}
+
+// *****************************************************************************
+// (객체추적 엔진 초기화)  
+// *****************************************************************************
+void CMultiObjectBatch2010Dlg::InitDetectionProcess()
+{
+	int sw = m_pDib->Width() ;
+	int sh = m_pDib->Height();
+	int bitperpxl = m_pDib->BitCount();
+	unsigned char *src = m_pDib->GetCDibPixels(); // 순수 영상 데이터(raw data)를 추출한다.
+
+	m_dw = CAM_X/2;	// 고속 영상처리용 축소 이미지 사이즈(입력영상을 절반으로 축소해서 처리한다)
+	m_dh = CAM_Y/2;	// 고속 영상처리용 축소 이미지 사이즈(입력영상을 절반으로 축소해서 처리한다)
+
+	typedef void (DLLFunc)( int, int, unsigned char *, int, int, int );
+	DLLFunc *DllEngineInitialize = (DLLFunc*)GetProcAddress(m_hDLL, (LPCSTR)("EngineDetectionInitialize"));
+	(*DllEngineInitialize)(  m_dw, m_dh, src, sw, sh, bitperpxl );		// (1) COLOR  (2) BLACK & WHITE;
+}
+
+// *****************************************************************************
+// (리스트 컨트롤 박스에서 이미지 항목을 선택했을 때 실행되는 함수)  
+// *****************************************************************************
+void CMultiObjectBatch2010Dlg::OnLvnItemchangedListImage(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMLISTVIEW pNMLV = reinterpret_cast<LPNMLISTVIEW>(pNMHDR);
+	// TODO: Add your control notification handler code here
+	if( pNMLV->uNewState == 0){
+		*pResult = 0;
+		return;
+	}
+
+	POSITION pos = m_list_image.GetFirstSelectedItemPosition();
+	int nIndex = m_list_image.GetNextSelectedItem( pos );
+
+	// 선택된 항목을 파란색 바로 칠하기 ...
+	ListView_SetItemState(m_list_image.GetSafeHwnd(), nIndex, LVIS_FOCUSED|LVIS_SELECTED, 0x000F);
+	UpdateData( true );
+
+	//*************************************************************************
+	// 리스트 컨트롤에서 선택된 영상의 처리
+	//*************************************************************************
+	CString strFilePath = m_Gallery[nIndex].m_FilePath;
+	CString strFileName = m_Gallery[nIndex].m_FileName;
+
+	if(m_pDib) delete m_pDib; // Global Image Pointer !
+	m_pDib = new CDib(strFilePath);
+
+	((CDibApp *)m_pDib)->DrawDibOnPictureControl(&m_pic_main, true);
+
+	//*************************************************************************
+	// 현재 선택된 이미지 파일 정보를 다이얼로그 화면에 출력한다 
+	//*************************************************************************
+	m_number = nIndex+1;
+	m_message.Format(_T("%s"), strFileName);
+	UpdateData(FALSE); // 다이알로그 업데이트
+
+	//*************************************************************************	
+	*pResult = 0;
+}
+
+
+// *****************************************************************************
+// (리스트 컨트롤 박스에 읽어들인 영상 목록파일에 대해서 배치모드 시작/종료)  
+// *****************************************************************************
+void CMultiObjectBatch2010Dlg::OnBnClickedButtonBatchProcessing()
+{
+	UpdateData(true); // 다이알로그 설정 내용 갖고오기 
+
+	if( m_total ==  0 ) return; // 읽어들인 이미지 파일 목록이 없을 경우 돌아간다.
+
+	//*************************************************************************
+	// (개별파일 처리용 쓰레드 함수호출) -- 배치모드로 동작한다.
+	//*************************************************************************	
+	if ( m_bGoTHread == false )
+	{
+		 m_pThread = AfxBeginThread( BatchRecognitionByThreadMode, this);
+		 m_message= _T("(배치모드 검출)쓰레드 시작");
+		 m_bGoTHread = true;
+	}
+	else
+	{
+		m_pThread->SuspendThread();	
+		m_message= _T("(배치모드 종료)쓰레드 종료");
+		m_bGoTHread = false;
+	}
+
+	UpdateData( false );
+}
+
+// ****************************************************************************
+// (배치모드 함수를 하나씩 연속적으로 호출한다)
+// ****************************************************************************
+UINT BatchRecognitionByThreadMode(LPVOID lParam) // 쓰레드로 구동되는 함수 
+{
+	CMultiObjectBatch2010Dlg* pOwner = (CMultiObjectBatch2010Dlg*) lParam ;
+	if ( pOwner == NULL ) {
+		AfxMessageBox(_T("쓰레드를 실행시키는데 실패하였습니다"));
+		return 0;
+	}
+
+	// ----------------------------------------------------------
+	// 배치모드 처리 !!  이미지 파일 목록을 반복해서 계속 실행한다 
+	// ----------------------------------------------------------
+	for(;;){
+		int i = nCntBatch;
+		pOwner->CallByThreadForSingleImageProcessing( i ); // 한 파일씩 읽어와서 배치모드로 인식
+		nCntBatch++;
+
+		if( nCntBatch == pOwner->m_total-1 ){
+			nCntBatch=0;
+		}
+	}
+
+	return true;
+}
+
+
+// ****************************************************************************
+// (배치모드에서 한 장의 영상 프레임을 처리한다)
+// ****************************************************************************
+void CMultiObjectBatch2010Dlg::CallByThreadForSingleImageProcessing( int nIndex ) // 쓰레드가 호출하는 부모 윈도우측 함수  
+{
+	UpdateData(true); // 다이알로그 내용 갖고오기 
+
+	//*************************************************************************
+	// READ IMAGE FILE !
+	//*************************************************************************
+	CString strFilePath = m_Gallery[nIndex].m_FilePath; // 이미지 파일의 경로를 가져온다
+	CString strFileName = m_Gallery[nIndex].m_FileName;
+
+	CDib *pDib = new CDib(strFilePath);	 // 이미지 파일을 읽어 들인다.
+	((CDibApp *)pDib)->DrawDibOnPictureControl(&m_pic_main, true); // 이미지 파일을 화면에 출력한다.
+	
+	m_number = nIndex+1;
+	UpdateData(FALSE);  
+
+	int select =  m_proc_select;    // 라디오버턴 -- 동작모드 
+	if( select == PROC_SRC_IMAGE ){ // 라디오버턴 -- Original Image 보여주기 선택한 경우 ...
+		delete pDib;
+		return;
+	}
+
+	//*************************************************************************
+	// CHECK PROCESSING TIME (START)
+	//*************************************************************************
+	clock_t start, finish;
+	float du_get;
+	start = clock();
+	//*************************************************************************
+
+	int w = pDib->Width() ;
+	int h = pDib->Height();
+	unsigned char *src = pDib->GetCDibPixels(); // 순수 영상 데이터(raw data)를 추출한다.
+	int bitperpxl = pDib->BitCount();
+
+	//*************************************************************************
+	// 객체추적 함수호출
+	//*************************************************************************
+	OBJECTTRACKING( nIndex, src, w, h, bitperpxl, select ); // 읽어들인 영상을 대상으로 객체추적함수 호출
+
+	delete src;	
+
+	//*************************************************************************
+	// CHECK PROCESSING TIME (FINISH)
+	//*************************************************************************
+	finish = clock();
+	du_get = (float)(finish - start) / CLOCKS_PER_SEC;
+
+	CString strSpeed;
+	strSpeed.Format(_T("%.3f sec"), du_get);
+	m_list_image.SetItemText( nIndex, 2, strSpeed );
+
+	//*************************************************************************
+	if( m_number == m_total) {
+		m_pThread->SuspendThread();	
+		m_bGoTHread = false;
+		m_message= _T("(배치모드 종료)쓰레드 종료");
+	}
+
+	//*************************************************************************
+	delete pDib;
+	UpdateData(false);
+}
+
+// *****************************************************************************
+// (객체 검출/추적)  
+// *****************************************************************************
+void CMultiObjectBatch2010Dlg::OBJECTTRACKING(int index, unsigned char *src, int sw, int sh, int bitperpxl, int select )
+{
+
+
+	// *************************************************************************
+	// (DLL에서 할당된 버퍼로 처리 결과 영상을 받는다)
+	// *************************************************************************
+	m_dw = CAM_X/2;	// 고속 영상처리용 축소 이미지 사이즈
+	m_dh = CAM_Y/2;	// 고속 영상처리용 축소 이미지 사이즈
+
+	unsigned char *bin = new unsigned char [m_dw*m_dh  ]; // 라이브러리에서 리턴되는 흑백영상 버퍼 
+	unsigned char *col = new unsigned char [m_dw*m_dh*3]; // 라이브러리에서 리턴되는 컬러영상 버퍼
+	memset(col, 255, m_dw*m_dh*3 );
+
+	CDib *pRetDib2 = CreateCDib( src, sw, sh, bitperpxl );//
+
+	struct TARGET_DETECTION *pTarget= new TARGET_DETECTION; // 객체추적 결과 저장용 메모리 할당 
+	
+	// ********************************++++
+	// Dll 객체 검출 및 추적 엔진 호출 
+	// ********************************++++
+	typedef int (DLLFunc)( int, unsigned char *, unsigned char *, int, int, unsigned char *, int, int, int, int, struct TARGET_DETECTION * );
+	DLLFunc *DllEngineRecognition = (DLLFunc*)GetProcAddress(m_hDLL, (LPCSTR)("EngineObjectDetection"));
+	int nCnt = (*DllEngineRecognition)( index, col, bin, m_dw, m_dh, src, sw, sh, bitperpxl, select, pTarget );	 // (1) COLOR  (2) BLACK & WHITE
+
+	m_message.Format(_T("TRACKING COUNT = %d"), nCnt);
+	UpdateData(FALSE); // 다이알로그 업데이트
+
+	// ********************************++++
+	// Dll 객체 검출 및 추적 결과 영상 출력
+	// ********************************++++
+	if( select == PROC_BACKGROND ){
+		CDib *pRetDib = CreateCDib( col, m_dw, m_dh, 24 ); // 영상 데이터로 24비트 CDib 생성(컬러)
+		((CDibApp *)pRetDib)->DrawDibOnPictureControl(&m_pDlg->m_pic_popup, true);
+		delete pRetDib;
+
+		//-----------------------------------------------------------< 사진 저장  >
+	UpdateData(true); // 다이알로그 내용 가져오기...
+	//현재시간 구함
+		CTime m_bToday = CTime::GetCurrentTime();
+		//CString str = m_Today.Format("%y / %m / %d /   %h:%m:%s");
+		int m_bY1, m_bM2, m_bD1, m_bH1, m_bM1, m_bS1;
+		m_bY1 = m_bToday.GetYear();
+		m_bM2 = m_bToday.GetMonth(); 
+		m_bD1 = m_bToday.GetDay();
+		m_bH1 = m_bToday.GetHour();
+		m_bM1 = m_bToday.GetMinute();
+		m_bS1 = m_bToday.GetSecond();
+
+	if(nCnt>0)
+	{
+
+	if( m_total != 0 )
+	{
+	CString strFilePath = m_strOutPath + _T("\\background\\"); //사진X 객체추적 이미지 파일 저장 경로 
+	//else CString strFilePath = m_strOutPath + _T("\\listobject\\"); //사진불러왔을때 객체추적 이미지 파일 저장 경로 
+	CString strFileName;
+	//strFileName.Format(_T("%04d.jpg"), m_nCaptureCounter);  // 이미지 파일 이름 설정(숫자 카운트)
+	strFileName.Format(_T("%d_%d_%d__%d_%d_%d__%04d.jpg"), m_bY1, m_bM2, m_bD1, m_bH1, m_bM1, m_bS1,m_nCaptureCounter);  // 이미지 파일 이름 설정(숫자 카운트)
+	m_nCaptureCounter++; // 숫자로 지정된 이미지 파일 이름 증가
+	//if(m_nCaptureCounter == 2000 ) m_bCapture = false; // 최대 2000장까지만 저잔한다 
+	
+	//CDib *pRetDib = CreateCDib( col, m_dw, m_dh, 24 );
+	//CDib *pDib = new CDib(strFilePath);	 // 이미지 파일을 읽어 들인다.
+	pRetDib2->SaveImage(strFilePath + strFileName); // 이미지 파일 저장 
+	m_message = strFileName; // 파일 이름 출력 
+	//delete pRetDib2;
+	}
+	UpdateData(false); 
+	}
+//-----------------------------------------------------------< 사진 저장  >
+	}
+	else
+	if( select == PROC_DETECTION )
+	{
+		CDib *pRetDib = CreateCDib( col, m_dw, m_dh, 24 ); // 영상 데이터로 24비트 CDib 생성(컬러)
+		((CDibApp *)pRetDib)->DrawDibOnPictureControl(&m_pDlg->m_pic_popup, true);
+		delete pRetDib;
+
+		// ********************************
+		// 객체 검출 및 추적 결과 해석  
+		// ********************************
+		TrackingDetectedObject(pTarget); // 검출된 객체를 추적한다.
+
+	//	DrawTrackingResults(&m_pic_main); // 각 객체가 검출된 과거부터 지금까지 경로에 대한 사각형 박스 그리기  
+		DrawDetectionResults(&m_pic_main, pTarget); // 각 객체의 마지막 검출된 사각형 박스 그리기 
+
+//-----------------------------------------------------------< 사진 저장  >
+	UpdateData(true); // 다이알로그 내용 가져오기...
+	//현재시간 구함
+		CTime m_bToday = CTime::GetCurrentTime();
+		//CString str = m_Today.Format("%y / %m / %d /   %h:%m:%s");
+		int m_bY1, m_bM2, m_bD1, m_bH1, m_bM1, m_bS1;
+		m_bY1 = m_bToday.GetYear();
+		m_bM2 = m_bToday.GetMonth(); 
+		m_bD1 = m_bToday.GetDay();
+		m_bH1 = m_bToday.GetHour();
+		m_bM1 = m_bToday.GetMinute();
+		m_bS1 = m_bToday.GetSecond();
+
+	if(nCnt>0)
+	{
+
+	if( m_total != 0 )
+	{
+	CString strFilePath = m_strOutPath + _T("\\object\\"); //사진X 객체추적 이미지 파일 저장 경로 
+	//else CString strFilePath = m_strOutPath + _T("\\listobject\\"); //사진불러왔을때 객체추적 이미지 파일 저장 경로 
+	CString strFileName;
+	//strFileName.Format(_T("%04d.jpg"), m_nCaptureCounter);  // 이미지 파일 이름 설정(숫자 카운트)
+	strFileName.Format(_T("%d_%d_%d__%d_%d_%d__%04d.jpg"), m_bY1, m_bM2, m_bD1, m_bH1, m_bM1, m_bS1,m_nCaptureCounter);  // 이미지 파일 이름 설정(숫자 카운트)
+	m_nCaptureCounter++; // 숫자로 지정된 이미지 파일 이름 증가
+	//if(m_nCaptureCounter == 2000 ) m_bCapture = false; // 최대 2000장까지만 저잔한다 
+	
+	CDib *pRetDib = CreateCDib( col, m_dw, m_dh, 24 );
+	pRetDib->SaveImage(strFilePath + strFileName); // 이미지 파일 저장 
+	m_message = strFileName; // 파일 이름 출력 
+	delete pRetDib;
+	}
+	UpdateData(false); 
+	}
+	else
+	{
+		CString strFilePath = m_strOutPath + _T("\\object\\"); //사진X 객체추적 이미지 파일 저장 경로 
+	//else CString strFilePath = m_strOutPath + _T("\\listobject\\"); //사진불러왔을때 객체추적 이미지 파일 저장 경로 
+	CString strFileName;
+	//strFileName.Format(_T("%04d.jpg"), m_nCaptureCounter);  // 이미지 파일 이름 설정(숫자 카운트)
+	strFileName.Format(_T("%d_%d_%d__%d_%d_%d__%04d.jpg"), m_bY1, m_bM2, m_bD1, m_bH1, m_bM1, m_bS1,m_nCaptureCounter);  // 이미지 파일 이름 설정(숫자 카운트)
+	m_nCaptureCounter++; // 숫자로 지정된 이미지 파일 이름 증가
+		pRetDib2->SaveImage(strFilePath + strFileName); // 이미지 파일 저장
+	}
+//-----------------------------------------------------------< 사진 저장  >
+	}
+
+	delete pRetDib2;
+	delete pTarget;
+	delete bin;
+	delete col;
+	
+	
+}
+
+// *****************************************************************************
+// (객체 검출결과를 추적)  
+// *****************************************************************************
+void CMultiObjectBatch2010Dlg::TrackingDetectedObject(struct TARGET_DETECTION *pObject)
+{
+	int i,t;
+	int sw = m_pDib->Width() ;
+	int sh = m_pDib->Height();
+
+	float fX = (float)VIEW_X/sw; // 화면실제 크기에 맞추기 위한 좌표조정 비율
+	float fY = (float)VIEW_Y/sh; // 화면실제 크기에 맞추기 위한 좌표조정 비율
+
+	if(bStartTracking == false) {
+
+		for(i=0; i<MAX_TARGET; i++)
+		{
+			m_tracking[i].id = -1;
+			m_tracking[i].OnTracking = 0;
+			m_tracking[i].tCnt = 0;
+			m_tracking[i].nSkip= 0;
+		}
+
+		for(i=0; i<pObject->tCnt; i++)
+		{
+			m_tracking[i].id = i;
+			m_tracking[i].OnTracking = 1;
+			m_tracking[i].tCnt = 0;
+			m_tracking[i].nSkip= 0;
+
+			m_tracking[i].box[0] = pObject->box[i];
+			m_tracking[i].tCnt++;
+		}
+
+		bStartTracking = true;
+		return;
+	}
+
+	// ------------------------------------------------------------
+	// (STEP 1)
+	// 현재 추적 정보가 저장된 Target 버퍼의 Target이 이동된 것으로 
+	// 보이는 세그먼트가 있는지 확인하는 방식으로 객체를 추적한다  
+	// ------------------------------------------------------------
+
+	int  nCnt = pObject->tCnt;
+	bool bCheckTracking[MAX_TARGET];
+	for(i=0; i<nCnt; i++) bCheckTracking[i] = false;
+
+	for(t=0; t<MAX_TARGET; t++)
+	{
+		if( m_tracking[t].OnTracking == 0 ) continue;
+
+		int nTrk = m_tracking[t].tCnt-1;
+		int size = 0;
+		int nid = -1;
+
+		for(i=0; i<nCnt; i++)
+		{
+			if(bCheckTracking[i]==true) continue; // 현재 검출객체는 이미 다른 객체의 추적결과로 설정되었음
+			int overlap = GetOverlappedSize(m_tracking[t].box[nTrk], pObject->box[i]);
+
+			if( size < overlap ){ // 최대 오버랩 세그먼트를 찾는다.
+				nid = i;
+				size = overlap;
+			}
+		}
+
+		if( nid == -1 ) { // 타겟과 겹친 object 가 존재하지 않는다 
+			m_tracking[t].nSkip += 1;
+			continue;
+		}
+
+		bCheckTracking[nid] = true;
+		int p = m_tracking[t].tCnt;
+
+		m_tracking[t].box[p].sx = pObject->box[nid].sx;
+		m_tracking[t].box[p].ex = pObject->box[nid].ex;
+		m_tracking[t].box[p].sy = pObject->box[nid].sy;
+		m_tracking[t].box[p].ey = pObject->box[nid].ey;
+
+		m_tracking[t].tCnt += 1;
+		m_tracking[i].nSkip = 0;
+
+		// **************************************
+		// 정상적인 추적 객체로 초기 등록한다 
+		// **************************************
+		if( 3 < m_tracking[t].tCnt )
+		{ 
+			m_tracking[t].OnTracking = 2; // 정상적인 객체로 추적 중인것으로 표시한다.
+		}
+
+		if( m_tracking[t].tCnt >= MAX_FRAMES ){ // 차량의 경우 최대 frames을 넘으면 추적 종료한다 
+			m_tracking[t].id = -1;
+			m_tracking[t].OnTracking= 0; // 해당 타겟 버퍼를 0으로 clear 시킨다.
+			m_tracking[t].nSkip = 0;
+			m_tracking[t].tCnt  = 0;
+		}
+	}
+
+	// ------------------------------------------------------------
+	// (STEP 2)
+	// 현재 객체 추적 테스트 이후 추적 버퍼를 업데이트한다. 
+	// ------------------------------------------------------------
+	for( t=0; t<MAX_TARGET; t++ )
+	{
+		if( m_tracking[t].OnTracking == 0 ) continue;
+
+		bool bExpire = false;
+		if( m_tracking[t].nSkip >= 3 ) bExpire = true;
+
+		if( m_tracking[t].tCnt  >= 10){
+			if( IsItBoundaryObject(t) == true ) bExpire = true;
+		}
+
+		if( bExpire == true)
+		{
+			m_tracking[t].id = -1;	// Global ID를 reset 시킨다. 	
+			m_tracking[t].OnTracking = 0 ; // 객체 추적을 종료한다. 
+			m_tracking[t].nSkip = 0;
+			m_tracking[t].tCnt  = 0;			
+		}
+	}
+
+	// ------------------------------------------------------------
+	// (STEP 3)
+	// 현재 검출된 세그먼트들을 대상으로 추적 테스트 이후 
+	// 새롭게 검출된 객체를 버퍼에 등록한다  
+	// ------------------------------------------------------------
+	for( i=0; i<nCnt; i++)
+	{
+		if( bCheckTracking[i] == true ) continue; // 위에서 이미 세그먼트를 객체 버퍼에 등록했다.
+		int d = GetEmptyBufferNumber(); // 객체를 저장할 빈 버퍼를 찾는다.
+		if( d == -1 ) break; // 객체를 저장할 빈 버퍼가 없다.
+
+		m_tracking[d].box[0].sx = pObject->box[i].sx;
+		m_tracking[d].box[0].ex = pObject->box[i].ex;
+		m_tracking[d].box[0].sy = pObject->box[i].sy;
+		m_tracking[d].box[0].ey = pObject->box[i].ey;
+
+		m_tracking[d].id = d;
+		m_tracking[d].OnTracking = 1; // 객체를 신규 등록한다 
+		m_tracking[d].tCnt = 1;
+		m_tracking[d].nSkip= 0;
+	}
+}
+
+
+int CMultiObjectBatch2010Dlg::GetOverlappedSize(struct BOX Target, struct BOX Object)
+{
+	int tsx = Target.sx;
+	int tex = Target.ex;
+	int tsy = Target.sy;
+	int tey = Target.ey;
+
+	int bsx = Object.sx;
+	int bex = Object.ex;
+	int bsy = Object.sy;
+	int bey = Object.ey;
+
+	int x_overlap = MAX(0, MIN(tex, bex) - MAX(tsx, bsx));
+	int y_overlap = MAX(0, MIN(tey, bey) - MAX(tsy, bsy));
+	int overlapArea = x_overlap * y_overlap;
+
+	return overlapArea;
+}
+
+int CMultiObjectBatch2010Dlg::GetEmptyBufferNumber()
+{
+	for(int t=0; t<MAX_TARGET; t++){
+		if( m_tracking[t].OnTracking == 0 ) return t;
+	}
+
+	return -1;
+}
+
+bool CMultiObjectBatch2010Dlg::IsItBoundaryObject(int t)
+{
+	int sw = m_pDib->Width() ;
+	int sh = m_pDib->Height();
+
+	int p = m_tracking[t].tCnt-1;
+
+	int sx = m_tracking[t].box[p].sx;
+	int ex = m_tracking[t].box[p].ex;
+	int sy = m_tracking[t].box[p].sy;
+	int ey = m_tracking[t].box[p].ey;
+
+	if( sx < 5 || sw-5 < ex ||
+		sy < 5 || sh-5 < ey ) return true;
+
+	return false;
+}
+
+// *****************************************************************************
+// (검출결과 디스플레이) -- 객체가 검출된 마지막 사각형 박스 그리기   
+// *****************************************************************************
+void CMultiObjectBatch2010Dlg::DrawDetectionResults(CStatic *pView, struct TARGET_DETECTION *pTarget)
+{
+	int sw = m_pDib->Width() ;
+	int sh = m_pDib->Height();
+
+	float fX = (float)VIEW_X/sw; // 화면실제 크기에 맞추기 위한 좌표조정 비율
+	float fY = (float)VIEW_Y/sh; // 화면실제 크기에 맞추기 위한 좌표조정 비율
+
+	CDC *pDC = pView->GetDC();
+
+	// ********************************
+	// 그리기 영역 클리핑-- 다이얼로그 뷰 화면 밖으로 출력되지 않도록 한다
+	// ********************************
+	CRect rt;
+	CRgn rgn;
+
+	pView->GetClientRect(&rt);
+	rgn.CreateRectRgnIndirect(&rt);
+	pDC->SelectClipRgn(&rgn);
+
+	// ********************************
+	// 검출된 객체의 사각형 박스를 출력한다  
+	// ********************************
+	int nCnt = pTarget->tCnt;
+
+	CPen Pen;
+	Pen.CreatePen(PS_SOLID, 3, RGB(00,255, 00));	
+	pDC->SelectObject(&Pen);
+	pDC->SelectStockObject(NULL_BRUSH);
+
+	for(int i=0; i<nCnt; i++)
+	{
+		int lx = pTarget->box[i].sx * fX;  // 화면실제 크기에 맞추기 위한 좌표조정
+		int rx = pTarget->box[i].ex * fX;  // 화면실제 크기에 맞추기 위한 좌표조정
+		int uy = pTarget->box[i].sy * fY;  // 화면실제 크기에 맞추기 위한 좌표조정
+		int dy = pTarget->box[i].ey * fY;  // 화면실제 크기에 맞추기 위한 좌표조정
+
+		pDC->Rectangle( lx, uy, rx, dy);
+
+	}
+
+	Pen.DeleteObject();
+	ReleaseDC(pDC);	
+
+
+}
+
+
+// *****************************************************************************
+// (추적결과 디스플레이) -- 객체가 지금까지 검출된 과정의 사각형 박스 그리기 
+// *****************************************************************************
+void CMultiObjectBatch2010Dlg::DrawTrackingResults(CStatic *pView)
+{
+	int sw = m_pDib->Width() ;
+	int sh = m_pDib->Height();
+
+	float fX = (float)VIEW_X/sw; // 화면실제 크기에 맞추기 위한 좌표조정 비율
+	float fY = (float)VIEW_Y/sh; // 화면실제 크기에 맞추기 위한 좌표조정 비율
+
+	CDC *pDC = pView->GetDC();
+
+	// ********************************
+	// 그리기 영역 클리핑-- 다이얼로그 뷰 화면 밖으로 출력되지 않도록 한다
+	// ********************************
+	CRect rt;
+	CRgn rgn;
+
+	pView->GetClientRect(&rt);
+	rgn.CreateRectRgnIndirect(&rt);
+	pDC->SelectClipRgn(&rgn);
+
+	// ********************************
+	// 검출된 객체의 사각형 박스를 출력한다  
+	// ********************************
+	CPen Pen;
+	Pen.CreatePen(PS_SOLID, 1, RGB(00,255, 00));	
+	pDC->SelectObject(&Pen);
+	pDC->SelectStockObject(NULL_BRUSH);
+
+	for(int i=0; i<MAX_TARGET; i++)
+	{
+		if(m_tracking[i].OnTracking !=2 ) continue; // 완전한 추적 객체가 아니다. 
+
+		for(int j=0; j<m_tracking[i].tCnt; j++)
+		{
+			int lx = m_tracking[i].box[j].sx * fX;  // 화면실제 크기에 맞추기 위한 좌표조정
+			int rx = m_tracking[i].box[j].ex * fX;  // 화면실제 크기에 맞추기 위한 좌표조정
+			int uy = m_tracking[i].box[j].sy * fY;  // 화면실제 크기에 맞추기 위한 좌표조정
+			int dy = m_tracking[i].box[j].ey * fY;  // 화면실제 크기에 맞추기 위한 좌표조정
+
+			pDC->Rectangle( lx, uy, rx, dy);
+		}
+
+	}
+
+	Pen.DeleteObject();
+	ReleaseDC(pDC);	
+}
